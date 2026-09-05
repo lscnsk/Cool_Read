@@ -1,0 +1,51 @@
+{
+  "name": "flex-read",
+  "private": true,
+  "version": "1.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 3000",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.0.0",
+    "@capacitor/app": "^6.0.0",
+    "@capacitor/core": "^6.0.0",
+    "@capacitor/filesystem": "^6.0.0",
+    "@capacitor/preferences": "^6.0.0",
+    "@capacitor/splash-screen": "^6.0.0",
+    "@capacitor/text-zoom": "^6.0.0",
+    "@fontsource/caveat": "^5.2.8",
+    "@fontsource/cinzel": "^5.2.8",
+    "@fontsource/dancing-script": "^5.2.8",
+    "@fontsource/literata": "^5.2.8",
+    "@fontsource/uncial-antiqua": "^5.2.7",
+    "hyphenation.en-us": "^0.2.1",
+    "hyphenation.ru": "^0.2.1",
+    "hypher": "^0.2.5",
+    "jszip": "^3.10.1",
+    "libarchive.js": "^2.0.2",
+    "localforage": "^1.10.0",
+    "lucide-react": "^0.344.0",
+    "motion": "^12.40.0",
+    "mp4box": "^2.3.0",
+    "pdfjs-dist": "^6.0.227",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "unrar-js": "^0.2.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.0.0",
+    "@types/react": "^18.2.64",
+    "@types/react-dom": "^18.2.21",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.18",
+    "music-metadata": "^11.13.0",
+    "postcss": "^8.4.35",
+    "puppeteer": "^25.1.0",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5.2.2",
+    "vite": "^5.1.4"
+  }
+}

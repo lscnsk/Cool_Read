@@ -1,0 +1,288 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-size: 16px !important;
+    -webkit-text-size-adjust: 100% !important;
+    -moz-text-size-adjust: 100% !important;
+    -ms-text-size-adjust: 100% !important;
+    text-size-adjust: 100% !important;
+  }
+  *, *::before, *::after {
+    -webkit-text-size-adjust: 100% !important;
+    -moz-text-size-adjust: 100% !important;
+    -ms-text-size-adjust: 100% !important;
+    text-size-adjust: 100% !important;
+    -webkit-tap-highlight-color: transparent !important;
+    -webkit-focus-ring-color: transparent !important;
+    outline: none !important;
+  }
+  *:focus, *:focus-visible, *:active {
+    -webkit-tap-highlight-color: transparent !important;
+    -webkit-focus-ring-color: transparent !important;
+    outline: none !important;
+  }
+  button, a, [role="button"] {
+    -webkit-tap-highlight-color: transparent !important;
+    -webkit-focus-ring-color: transparent !important;
+    outline: none !important;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  button:focus, button:active, button:focus-visible,
+  a:focus, a:active, a:focus-visible,
+  [role="button"]:focus, [role="button"]:active, [role="button"]:focus-visible {
+    -webkit-tap-highlight-color: transparent !important;
+    -webkit-focus-ring-color: transparent !important;
+    outline: none !important;
+  }
+  body {
+    font-family: 'Literata', serif;
+    background-color: #23211f;
+    overscroll-behavior: none;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    -webkit-text-size-adjust: 100% !important;
+    -moz-text-size-adjust: 100% !important;
+    -ms-text-size-adjust: 100% !important;
+    text-size-adjust: 100% !important;
+  }
+}
+
+@layer utilities {
+  .scrollbar-hide::-webkit-scrollbar { display: none; }
+  .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+  
+  .custom-scroll::-webkit-scrollbar { width: 6px; }
+  .custom-scroll::-webkit-scrollbar-track { background: #2c2a28; }
+  .custom-scroll::-webkit-scrollbar-thumb { background: #45413e; border-radius: 3px; }
+  .custom-scroll::-webkit-scrollbar-thumb:hover { background: #57534e; }
+
+  /* Reader Scrollbar - HIDDEN */
+  .reader-scroll {
+    scrollbar-gutter: stable;
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .reader-scroll::-webkit-scrollbar { 
+    display: none; 
+    width: 0;
+    background: transparent;
+  }
+}
+
+input[type=range] { -webkit-appearance: none; background: transparent; }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; }
+input[type=range]:focus { outline: none; }
+
+/* Reader Styles */
+.dash-fixed {
+  white-space: nowrap;
+}
+
+.dash-space {
+  display: inline-block;
+  width: 0.35em;
+  vertical-align: baseline;
+}
+
+.reader-content {
+  text-align: justify;
+  text-justify: auto;
+  text-rendering: optimizeLegibility;
+  font-kerning: normal;
+  font-feature-settings: "kern" 1, "liga" 1;
+  overflow-wrap: break-word;
+  word-break: normal;
+  hyphens: auto; 
+  -webkit-hyphens: auto;
+  -ms-hyphens: auto;
+}
+
+.reader-content h1, 
+.reader-content h2, 
+.reader-content h3, 
+.reader-content h4, 
+.reader-content h5, 
+.reader-content h6,
+.reader-content .title,
+.reader-content strong.title,
+.reader-content .injected-title,
+.reader-content .subtitle {
+  text-align: center !important;
+  display: block !important;
+  width: 100% !important;
+  margin-top: 1.5em;
+  margin-bottom: 1em;
+  font-weight: bold;
+  letter-spacing: normal !important;
+  word-spacing: normal !important;
+}
+
+.reader-content p {
+  margin-bottom: 0;
+  text-indent: 1.5em;
+  text-align: justify !important;
+  text-justify: inter-word !important;
+  letter-spacing: -0.015em;
+  word-spacing: normal;
+}
+
+.catalog-annotation-p {
+  text-align: justify !important;
+  text-justify: inter-word !important;
+  letter-spacing: -0.015em;
+  word-spacing: normal;
+  hyphens: auto;
+  -webkit-hyphens: auto;
+}
+
+.reader-content v,
+.reader-content .verse,
+.reader-content p.verse {
+  letter-spacing: normal !important;
+  word-spacing: normal !important;
+  text-align: left !important;
+}
+
+/* Theme-compliant Highlight */
+mark.search-highlight {
+  background-color: rgba(255, 255, 255, 0.25);
+  color: inherit;
+  border-radius: 4px;
+  padding: 0;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
+  display: inline;
+}
+
+/* PDF Text Layer Selection */
+.textLayer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+  opacity: 1;
+  line-height: 1.0;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  z-index: 2;
+  pointer-events: none;
+}
+.textLayer span,
+.textLayer br,
+.textLayer div {
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+  pointer-events: auto;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.textLayer span::selection,
+.textLayer br::selection,
+.textLayer div::selection,
+.textLayer ::selection {
+  background: rgba(0, 123, 255, 0.35) !important;
+  color: transparent !important;
+}
+.textLayer .endOfLine {
+  display: inline-block;
+  width: 100%;
+}
+
+/* Cover Page Styles */
+.book-cover-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 80vh;
+  text-align: center;
+  padding: 2rem;
+}
+.paged-content .book-cover-page {
+  min-height: 100% !important;
+  max-height: 100% !important;
+  height: 100% !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
+  justify-content: center !important;
+  overflow: hidden !important;
+  break-inside: avoid !important;
+}
+.book-cover-page img {
+  max-width: 100%;
+  max-height: 50vh;
+  margin-bottom: 2rem;
+}
+.paged-content .book-cover-page img {
+  max-height: 60% !important;
+  object-fit: contain !important;
+  margin-bottom: 1rem !important;
+}
+.paged-content img {
+  max-height: 100% !important;
+  object-fit: contain !important;
+  break-inside: avoid !important;
+}
+.book-cover-page h1 {
+  font-size: 2em;
+  font-weight: bold;
+  margin-bottom: 0.5em;
+  text-indent: 0 !important;
+}
+.book-cover-page h2 {
+  font-size: 1.2em;
+  font-style: italic;
+  color: #888;
+  text-indent: 0 !important;
+}
+
+/* Universal Anti-Outline, Anti-Ring, and Anti-Tap-Highlight Reset */
+*, *::before, *::after {
+  -webkit-tap-highlight-color: transparent !important;
+  -webkit-tap-highlight-color: rgba(0, 0, 0, 0) !important;
+  -webkit-focus-ring-color: transparent !important;
+  -webkit-touch-callout: none;
+}
+
+*:focus, *:focus-visible, *:focus-within, *:active,
+button, button:focus, button:focus-visible, button:active,
+a, a:focus, a:focus-visible, a:active,
+[role="button"], [role="button"]:focus, [role="button"]:focus-visible, [role="button"]:active {
+  outline: 0 !important;
+  outline: none !important;
+  outline-style: none !important;
+  outline-width: 0 !important;
+  outline-color: transparent !important;
+  outline-offset: 0 !important;
+  -webkit-tap-highlight-color: transparent !important;
+  -webkit-tap-highlight-color: rgba(0, 0, 0, 0) !important;
+  -webkit-focus-ring-color: transparent !important;
+}
+
+button:focus, button:focus-visible, button:active,
+a:focus, a:focus-visible, a:active,
+[role="button"]:focus, [role="button"]:focus-visible, [role="button"]:active {
+  box-shadow: none !important;
+  --tw-ring-color: transparent !important;
+  --tw-ring-shadow: none !important;
+  --tw-ring-offset-shadow: none !important;
+}
+
+button, [role="button"], a {
+  user-select: none;
+  -webkit-user-select: none;
+}
+

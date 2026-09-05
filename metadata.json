@@ -1,0 +1,8 @@
+{
+  "name": "CoolRead tip",
+  "description": "A modern audiobook player that organizes your local audio files into a library with persistent progress tracking and variable playback speed.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
