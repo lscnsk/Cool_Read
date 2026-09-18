@@ -467,6 +467,18 @@ function App() {
     }
   };
 
+  // Automatically check for new books in lscnsk/lscnsk_library on startup
+  useEffect(() => {
+    syncCatalogFromGitHub()
+      .then(({ books: updatedBooks, series: updatedSeries }) => {
+        setCatalogBooks(updatedBooks);
+        setCatalogSeries(updatedSeries);
+      })
+      .catch((e) => {
+        console.warn('Background catalog sync error:', e);
+      });
+  }, []);
+
 
   const lastBumpedTimeRef = useRef<number>(0);
   const lastAdvancedChapterRef = useRef<number | null>(null);
