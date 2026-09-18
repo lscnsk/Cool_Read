@@ -1,0 +1,174 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Background Magenta / Purple Gradient -->
+    <radialGradient id="purpleGlow" cx="20%" cy="20%" r="90%">
+      <stop offset="0%" stop-color="#ba00b5"/>
+      <stop offset="30%" stop-color="#7e0082"/>
+      <stop offset="65%" stop-color="#36003b"/>
+      <stop offset="100%" stop-color="#120015"/>
+    </radialGradient>
+    
+    <!-- Diagonal Glass Sheen Light Overlay -->
+    <linearGradient id="sheen" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.25"/>
+      <stop offset="48%" stop-color="#ffffff" stop-opacity="0.06"/>
+      <stop offset="50%" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.35"/>
+    </linearGradient>
+
+    <!-- Skull Cream Color Fill -->
+    <linearGradient id="skullCream" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#f8faee"/>
+      <stop offset="100%" stop-color="#e2e7cf"/>
+    </linearGradient>
+
+    <!-- Dark Socket Color -->
+    <radialGradient id="socketDark" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#1f0024"/>
+      <stop offset="100%" stop-color="#0a000c"/>
+    </radialGradient>
+
+    <!-- Red Ribbon Gradient -->
+    <linearGradient id="redRibbon" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff1a30"/>
+      <stop offset="100%" stop-color="#cb0014"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Squircle App Icon Frame -->
+  <rect width="512" height="512" rx="112" fill="url(#purpleGlow)"/>
+  <rect width="512" height="512" rx="112" fill="url(#sheen)"/>
+
+  <!-- Main Illustration Group -->
+  <g transform="translate(0, 12)">
+    
+    <!-- 1. Thick White Sticker Border Silhouette -->
+    <!-- Outer Contour combining Skull Cranium & Open Book Pages -->
+    <path d="
+      M 256 68
+      C 138 68, 118 155, 118 232
+      C 118 268, 134 294, 154 314
+      L 82 266
+      C 72 260, 60 268, 66 280
+      L 142 388
+      C 152 402, 178 418, 256 442
+      C 334 418, 360 402, 370 388
+      L 446 280
+      C 452 268, 440 260, 430 266
+      L 358 314
+      C 378 294, 394 268, 394 232
+      C 394 155, 374 68, 256 68 Z
+    " fill="#ffffff" stroke="#ffffff" stroke-width="18" stroke-linejoin="round" stroke-linecap="round"/>
+
+    <!-- 2. Dark Outline Behind the Book pages -->
+    <path d="
+      M 256 322
+      L 94 274
+      C 86 272, 80 280, 86 288
+      L 150 384
+      C 160 396, 184 410, 256 432
+      C 328 410, 352 396, 362 384
+      L 426 288
+      C 432 280, 426 272, 418 274
+      L 256 322 Z
+    " fill="#0f0013"/>
+
+    <!-- 3. Skull Smooth Cranium Dome -->
+    <path d="
+      M 256 82
+      C 152 82, 134 162, 134 232
+      C 134 272, 152 296, 174 314
+      C 205 322, 232 325, 256 325
+      C 280 325, 307 322, 338 314
+      C 360 296, 378 272, 378 232
+      C 378 162, 360 82, 256 82 Z
+    " fill="url(#skullCream)"/>
+
+    <!-- 4. Eye Sockets -->
+    <!-- Left Socket -->
+    <path d="
+      M 166 226
+      C 158 200, 180 174, 218 174
+      C 238 174, 242 205, 228 232
+      C 214 254, 174 252, 166 226 Z
+    " fill="url(#socketDark)"/>
+
+    <!-- Right Socket -->
+    <path d="
+      M 346 226
+      C 354 200, 332 174, 294 174
+      C 274 174, 270 205, 284 232
+      C 298 254, 338 252, 346 226 Z
+    " fill="url(#socketDark)"/>
+
+    <!-- 5. Nose Socket -->
+    <path d="
+      M 256 228
+      L 238 266
+      C 235 273, 243 278, 256 275
+      C 269 278, 277 273, 274 266 Z
+    " fill="url(#socketDark)"/>
+
+    <!-- 6. Book Pages Assembly -->
+    <!-- Left Book Block -->
+    <path d="
+      M 253 318
+      L 102 280
+      L 96 288
+      L 155 376
+      C 165 388, 188 402, 253 423 Z
+    " fill="url(#skullCream)"/>
+    <path d="
+      M 253 318
+      L 112 268
+      C 155 285, 205 300, 253 318 Z
+    " fill="#d2d8bf"/>
+    <path d="
+      M 253 322
+      L 118 282
+      C 160 295, 208 308, 253 322 Z
+    " fill="#eaeee0"/>
+
+    <!-- Right Book Block -->
+    <path d="
+      M 259 318
+      L 410 280
+      L 416 288
+      L 357 376
+      C 347 388, 324 402, 259 423 Z
+    " fill="url(#skullCream)"/>
+    <path d="
+      M 259 318
+      L 400 268
+      C 357 285, 307 300, 259 318 Z
+    " fill="#d2d8bf"/>
+    <path d="
+      M 259 322
+      L 394 282
+      C 352 295, 304 308, 259 322 Z
+    " fill="#eaeee0"/>
+
+    <!-- Center Spine Fold Line -->
+    <line x1="256" y1="318" x2="256" y2="424" stroke="#0f0013" stroke-width="5" stroke-linecap="round"/>
+
+    <!-- 7. Red Bookmark Ribbon Hanging Down -->
+    <path d="
+      M 270 320
+      C 276 348, 282 372, 308 388
+      L 328 428
+      L 308 414
+      L 292 428
+      L 284 382
+      C 268 366, 263 346, 260 320 Z
+    " fill="url(#redRibbon)"/>
+    <!-- Highlight Reflection on Ribbon -->
+    <path d="
+      M 270 320
+      C 276 348, 282 372, 308 388
+      L 328 428
+      L 320 422
+      C 296 394, 276 368, 266 320 Z
+    " fill="#ff5e6e" opacity="0.6"/>
+
+  </g>
+</svg>

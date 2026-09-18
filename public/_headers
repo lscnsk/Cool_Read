@@ -1,0 +1,9 @@
+/*
+  X-Frame-Options: SAMEORIGIN
+  X-Content-Type-Options: nosniff
+
+/libarchive/*.wasm
+  Content-Type: application/wasm
+
+/public/libarchive/*.wasm
+  Content-Type: application/wasm
