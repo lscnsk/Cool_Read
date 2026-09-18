@@ -45,15 +45,56 @@ export function getStoredCatalogBooks(): CatalogBook[] {
   return sortBooksChronologically(CATALOG_BOOKS.map(sanitizeBookCoverUrl));
 }
 
+export function buildCatalogSeriesFromBooks(books: CatalogBook[]): CatalogSeries[] {
+  const seriesMap = new Map<string, { id: string; name: string; authorsSet: Set<string> }>();
+
+  // Initialize with base CATALOG_SERIES
+  CATALOG_SERIES.forEach(s => {
+    seriesMap.set(s.name.toLowerCase(), {
+      id: s.id,
+      name: s.name,
+      authorsSet: new Set(s.authors)
+    });
+  });
+
+  // Extract series dynamically from all books
+  (books || []).forEach(b => {
+    if (b.series && b.series.trim()) {
+      const sName = b.series.trim();
+      const sKey = sName.toLowerCase();
+      const existing = seriesMap.get(sKey);
+      const author = b.author && b.author.trim() !== 'Неизвестный автор' ? b.author.trim() : '';
+
+      if (existing) {
+        if (author) existing.authorsSet.add(author);
+      } else {
+        const id = sKey.replace(/[^a-z0-9а-яё]/gi, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || `series-${Math.random().toString(36).substring(2, 7)}`;
+        const authorsSet = new Set<string>();
+        if (author) authorsSet.add(author);
+        seriesMap.set(sKey, { id, name: sName, authorsSet });
+      }
+    }
+  });
+
+  return Array.from(seriesMap.values()).map(s => ({
+    id: s.id,
+    name: s.name,
+    authors: Array.from(s.authorsSet)
+  }));
+}
+
 /**
  * Syncs the catalog metadata from GitHub without downloading full file contents.
  * Uses HTTP Range requests if probing new files to only fetch header metadata (< 4KB).
  * NEVER downloads or stores heavy Base64 content or full book bodies in the catalog cache.
  */
 export async function syncCatalogFromGitHub(): Promise<{ books: CatalogBook[]; series: CatalogSeries[] }> {
+  let controller: AbortController | null = null;
+  let timeoutId: any = null;
+
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000); // 8s timeout
+    controller = new AbortController();
+    timeoutId = setTimeout(() => controller?.abort(), 8000); // 8s timeout
 
     const response = await fetch(`https://api.github.com/repos/${GITHUB_REPO_OWNER}/${GITHUB_REPO_NAME}/contents`, {
       signal: controller.signal,
@@ -61,16 +102,17 @@ export async function syncCatalogFromGitHub(): Promise<{ books: CatalogBook[]; s
         'Accept': 'application/vnd.github.v3+json'
       }
     });
-    clearTimeout(timeoutId);
 
     if (!response.ok) {
       console.warn('GitHub API rate limited or unavailable, using current catalog');
-      return { books: getStoredCatalogBooks(), series: CATALOG_SERIES };
+      const cachedBooks = getStoredCatalogBooks();
+      return { books: cachedBooks, series: buildCatalogSeriesFromBooks(cachedBooks) };
     }
 
     const items = await response.json();
     if (!Array.isArray(items)) {
-      return { books: getStoredCatalogBooks(), series: CATALOG_SERIES };
+      const cachedBooks = getStoredCatalogBooks();
+      return { books: cachedBooks, series: buildCatalogSeriesFromBooks(cachedBooks) };
     }
 
     const fb2Files = items.filter((item: any) => 
@@ -127,14 +169,14 @@ export async function syncCatalogFromGitHub(): Promise<{ books: CatalogBook[]; s
         let year = '';
         let description = '';
 
+        let probeTimeout: any = null;
         try {
           const probeController = new AbortController();
-          const probeTimeout = setTimeout(() => probeController.abort(), 4000);
+          probeTimeout = setTimeout(() => probeController.abort(), 4000);
           const probeRes = await fetch(item.download_url, {
             signal: probeController.signal,
             headers: { 'Range': 'bytes=0-4096' }
           });
-          clearTimeout(probeTimeout);
 
           if (probeRes.ok) {
             const chunk = await probeRes.text();
@@ -165,6 +207,8 @@ export async function syncCatalogFromGitHub(): Promise<{ books: CatalogBook[]; s
           }
         } catch {
           // Range request fallback, simple title
+        } finally {
+          if (probeTimeout) clearTimeout(probeTimeout);
         }
 
         updatedBooks.push({
@@ -199,10 +243,13 @@ export async function syncCatalogFromGitHub(): Promise<{ books: CatalogBook[]; s
       console.warn('Could not save catalog cache to localStorage:', e);
     }
 
-    return { books: sorted, series: CATALOG_SERIES };
+    return { books: sorted, series: buildCatalogSeriesFromBooks(sorted) };
   } catch (err) {
     console.error('Error syncing catalog:', err);
-    return { books: getStoredCatalogBooks(), series: CATALOG_SERIES };
+    const cachedBooks = getStoredCatalogBooks();
+    return { books: cachedBooks, series: buildCatalogSeriesFromBooks(cachedBooks) };
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
   }
 }
 

@@ -34,7 +34,7 @@ import * as mm from 'music-metadata';
 import { CatalogView } from './components/CatalogView';
 import { CatalogSidebar } from './components/CatalogSidebar';
 import { CatalogBook, CatalogSeries, CATALOG_SERIES, sortBooksChronologically } from './data/catalogData';
-import { getStoredCatalogBooks, syncCatalogFromGitHub, downloadCatalogBookFile } from './utils/catalogSync';
+import { getStoredCatalogBooks, syncCatalogFromGitHub, downloadCatalogBookFile, buildCatalogSeriesFromBooks } from './utils/catalogSync';
 
 import { parseM4AChapters } from './utils/mp4chapters';
 
@@ -85,7 +85,7 @@ function App() {
   const [isCatalogOpen, setIsCatalogOpen] = useState(false);
   const [isCatalogFilterOpen, setIsCatalogFilterOpen] = useState(false);
   const [catalogBooks, setCatalogBooks] = useState<CatalogBook[]>(() => getStoredCatalogBooks());
-  const [catalogSeries, setCatalogSeries] = useState<CatalogSeries[]>(CATALOG_SERIES);
+  const catalogSeries = React.useMemo(() => buildCatalogSeriesFromBooks(catalogBooks), [catalogBooks]);
   const [catalogFilter, setCatalogFilter] = useState<{
     type: 'all' | 'series' | 'author';
     value?: string;
@@ -457,9 +457,8 @@ function App() {
   const handleRefreshCatalog = async () => {
     setIsCatalogSyncing(true);
     try {
-      const { books: updatedBooks, series: updatedSeries } = await syncCatalogFromGitHub();
+      const { books: updatedBooks } = await syncCatalogFromGitHub();
       setCatalogBooks(updatedBooks);
-      setCatalogSeries(updatedSeries);
     } catch (e) {
       console.error('Failed to sync catalog:', e);
     } finally {
@@ -469,14 +468,20 @@ function App() {
 
   // Automatically check for new books in lscnsk/lscnsk_library on startup
   useEffect(() => {
+    let isMounted = true;
     syncCatalogFromGitHub()
-      .then(({ books: updatedBooks, series: updatedSeries }) => {
-        setCatalogBooks(updatedBooks);
-        setCatalogSeries(updatedSeries);
+      .then(({ books: updatedBooks }) => {
+        if (isMounted) {
+          setCatalogBooks(updatedBooks);
+        }
       })
       .catch((e) => {
         console.warn('Background catalog sync error:', e);
       });
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
 
