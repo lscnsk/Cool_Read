@@ -82,13 +82,13 @@ export const AudioBookDetailsModal: React.FC<AudioBookDetailsModalProps> = ({
             <div className="p-6 space-y-5">
               <div className="space-y-4 pt-1">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold uppercase tracking-widest opacity-60">Название</label>
+                  <label className="text-xs font-bold uppercase tracking-widest opacity-60">Title</label>
                   <input 
                     type="text" 
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder="Название книги..."
+                    placeholder="Book title..."
                     className={`w-full px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 transition-all ${
                       isBimbo 
                         ? 'bg-white/50 border-[#FBCFE8] focus:ring-[#BE123C]/30 text-[#BE123C] placeholder-[#BE123C]/30' 
@@ -103,13 +103,13 @@ export const AudioBookDetailsModal: React.FC<AudioBookDetailsModalProps> = ({
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold uppercase tracking-widest opacity-60">Автор</label>
+                  <label className="text-xs font-bold uppercase tracking-widest opacity-60">Author</label>
                   <input 
                     type="text" 
                     value={author}
                     onChange={(e) => setAuthor(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder="Имя автора..."
+                    placeholder="Author name..."
                     className={`w-full px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 transition-all ${
                       isBimbo 
                         ? 'bg-white/50 border-[#FBCFE8] focus:ring-[#BE123C]/30 text-[#BE123C] placeholder-[#BE123C]/30' 
@@ -123,13 +123,13 @@ export const AudioBookDetailsModal: React.FC<AudioBookDetailsModalProps> = ({
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold uppercase tracking-widest opacity-60">Серия</label>
+                  <label className="text-xs font-bold uppercase tracking-widest opacity-60">Series</label>
                   <input 
                     type="text" 
                     value={series}
                     onChange={(e) => setSeries(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder="Название серии..."
+                    placeholder="Series name..."
                     className={`w-full px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 transition-all ${
                       isBimbo 
                         ? 'bg-white/50 border-[#FBCFE8] focus:ring-[#BE123C]/30 text-[#BE123C] placeholder-[#BE123C]/30' 

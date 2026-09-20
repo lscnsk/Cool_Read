@@ -485,9 +485,22 @@ export function useAppPersistence({
                      parsedBook = await parseEpub(fileToParse, book.id);
                 }
                 
-                if (parsedBook.title) {
-                    await saveMetadata(book.id, parsedBook.title, parsedBook.author, parsedBook.coverUrl, parsedBook.format);
-                }
+                const userTitle = book.title;
+                const userAuthor = book.author;
+                const userSeries = book.series;
+
+                const finalTitle = (userTitle && userTitle.trim()) ? userTitle : (parsedBook.title || book.id);
+                const finalAuthor = (userAuthor !== undefined && userAuthor !== '') ? userAuthor : (parsedBook.author || '');
+                const finalSeries = (userSeries !== undefined && userSeries !== '') ? userSeries : (parsedBook.series || undefined);
+
+                await saveMetadata(
+                    book.id, 
+                    finalTitle, 
+                    finalAuthor, 
+                    parsedBook.coverUrl || book.coverUrl, 
+                    parsedBook.format || book.format, 
+                    finalSeries
+                );
 
                 if (parsedBook.chapters && parsedBook.chapters.length > 0 && book.chapters && book.chapters.length > 0) {
                     parsedBook.chapters[0].file = fileToParse;
@@ -495,7 +508,15 @@ export function useAppPersistence({
                     parsedBook.chapters[0].url = parsedBook.chapters[0].url || book.chapters[0].url || '';
                 }
 
-                bookToPlay = { ...book, ...parsedBook, file: fileToParse, _sessionActive: true };
+                bookToPlay = { 
+                    ...book, 
+                    ...parsedBook, 
+                    title: finalTitle, 
+                    author: finalAuthor, 
+                    series: finalSeries, 
+                    file: fileToParse, 
+                    _sessionActive: true 
+                };
                 if (book.archiveFiles) {
                     bookToPlay.archiveFiles = book.archiveFiles;
                 }
@@ -512,6 +533,9 @@ export function useAppPersistence({
                 const metadataOnlyBook: Book = { 
                     ...book, 
                     ...parsedBook, 
+                    title: finalTitle, 
+                    author: finalAuthor, 
+                    series: finalSeries, 
                     file: fileToParse, 
                     archiveFiles: book.archiveFiles, 
                     chapters: metadataOnlyChapters, 
