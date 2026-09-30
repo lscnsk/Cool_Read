@@ -4,11 +4,13 @@ import { Book, Chapter } from '../types';
 const getAssetUrl = (path: string): string => {
     try {
         if (typeof window !== 'undefined' && window.location?.origin) {
-            return `${window.location.origin}/${path.replace(/^\//, '')}`;
+            const basePath = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1);
+            return new URL(path.replace(/^\//, ''), window.location.origin + basePath).href;
         }
     } catch (e) {}
-    return `/${path.replace(/^\//, '')}`;
+    return `./${path.replace(/^\//, '')}`;
 };
+
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = getAssetUrl('pdf.worker.min.mjs');
 
