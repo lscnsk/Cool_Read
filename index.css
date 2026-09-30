@@ -1,0 +1,705 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+}
+
+@layer base {
+  html {
+    font-size: 16px !important;
+    -webkit-text-size-adjust: 100% !important;
+    -moz-text-size-adjust: 100% !important;
+    -ms-text-size-adjust: 100% !important;
+    text-size-adjust: 100% !important;
+  }
+  *, *::before, *::after {
+    -webkit-text-size-adjust: 100% !important;
+    -moz-text-size-adjust: 100% !important;
+    -ms-text-size-adjust: 100% !important;
+    text-size-adjust: 100% !important;
+    -webkit-tap-highlight-color: transparent !important;
+    -webkit-focus-ring-color: transparent !important;
+    outline: none !important;
+  }
+  *:focus, *:focus-visible, *:active {
+    -webkit-tap-highlight-color: transparent !important;
+    -webkit-focus-ring-color: transparent !important;
+    outline: none !important;
+  }
+  button, a, [role="button"] {
+    -webkit-tap-highlight-color: transparent !important;
+    -webkit-focus-ring-color: transparent !important;
+    outline: none !important;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  button:focus, button:active, button:focus-visible,
+  a:focus, a:active, a:focus-visible,
+  [role="button"]:focus, [role="button"]:active, [role="button"]:focus-visible {
+    -webkit-tap-highlight-color: transparent !important;
+    -webkit-focus-ring-color: transparent !important;
+    outline: none !important;
+  }
+  body {
+    font-family: 'Literata', serif;
+    background-color: #23211f;
+    overscroll-behavior: none;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    -webkit-text-size-adjust: 100% !important;
+    -moz-text-size-adjust: 100% !important;
+    -ms-text-size-adjust: 100% !important;
+    text-size-adjust: 100% !important;
+  }
+}
+
+@layer utilities {
+  .scrollbar-hide::-webkit-scrollbar { display: none; }
+  .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+  
+  .custom-scroll::-webkit-scrollbar { width: 6px; }
+  .custom-scroll::-webkit-scrollbar-track { background: #2c2a28; }
+  .custom-scroll::-webkit-scrollbar-thumb { background: #45413e; border-radius: 3px; }
+  .custom-scroll::-webkit-scrollbar-thumb:hover { background: #57534e; }
+
+  /* Reader Scrollbar - HIDDEN */
+  .reader-scroll {
+    scrollbar-gutter: stable;
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .reader-scroll::-webkit-scrollbar { 
+    display: none; 
+    width: 0;
+    background: transparent;
+  }
+}
+
+input[type=range] { -webkit-appearance: none; background: transparent; }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; }
+input[type=range]:focus { outline: none; }
+
+/* Reader Styles */
+.reader-scroll {
+  scroll-behavior: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  touch-action: pan-y;
+  contain: layout style;
+}
+
+.dash-fixed {
+  white-space: nowrap !important;
+}
+
+.dash-word-lead {
+  white-space: nowrap !important;
+}
+
+.dash-space {
+  display: inline-block !important;
+  width: 0.28em !important;
+  max-width: 0.28em !important;
+  min-width: 0.28em !important;
+  overflow: hidden !important;
+  text-align: center !important;
+  vertical-align: baseline !important;
+}
+
+.dash-space-intra {
+  display: inline-block !important;
+  width: 0.28em !important;
+  max-width: 0.28em !important;
+  min-width: 0.28em !important;
+  overflow: hidden !important;
+  text-align: center !important;
+  vertical-align: baseline !important;
+}
+
+.punct-tight {
+  display: inline !important;
+  white-space: nowrap !important;
+  font-feature-settings: normal !important;
+  font-variant-numeric: normal !important;
+}
+
+.punct-tight-dots {
+  letter-spacing: -0.09em !important;
+  margin-right: 0.03em;
+}
+
+.punct-tight-combo {
+  display: inline !important;
+  white-space: nowrap !important;
+  letter-spacing: normal !important;
+  margin-right: 0.03em;
+}
+
+.punct-tight-combo .punct-mark {
+  letter-spacing: -0.04em !important;
+  display: inline !important;
+}
+
+.punct-tight-combo .punct-dots {
+  margin-left: -0.10em !important;
+  letter-spacing: -0.09em !important;
+  display: inline !important;
+}
+
+/* PDF.js Text Layer - Precision text positioning and selection */
+.textLayer {
+  position: absolute !important;
+  text-align: initial !important;
+  left: 0 !important;
+  top: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  overflow: hidden !important;
+  opacity: 1 !important;
+  line-height: 1 !important;
+  letter-spacing: normal !important;
+  word-spacing: normal !important;
+  transform-origin: 0 0 !important;
+  z-index: 2 !important;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  pointer-events: auto !important;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor, 1) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+
+.textLayer :is(span, br) {
+  color: transparent !important;
+  position: absolute !important;
+  white-space: pre !important;
+  cursor: text !important;
+  transform-origin: 0% 0% !important;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  line-height: 1 !important;
+}
+
+.textLayer > :not(.markedContent),
+.textLayer .markedContent span:not(.markedContent) {
+  z-index: 1 !important;
+  --font-height: 0;
+  font-size: calc(var(--text-scale-factor) * var(--font-height)) !important;
+  --scale-x: 1;
+  --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv)) !important;
+}
+
+.textLayer ::selection,
+.textLayer span::selection {
+  background: rgba(59, 130, 246, 0.35) !important;
+  color: transparent !important;
+}
+
+.reader-content {
+  text-align: justify;
+  text-align-last: left !important;
+  -webkit-text-align-last: left !important;
+  text-justify: inter-word;
+  -webkit-text-justify: inter-word;
+  word-spacing: -0.028em;
+  letter-spacing: -0.005em;
+  font-kerning: normal;
+  font-feature-settings: "kern" 1, "liga" 1, "calt" 1, "locl" 1;
+  text-rendering: optimizeLegibility;
+  overflow-wrap: break-word;
+  word-break: normal;
+  hyphens: auto; 
+  -webkit-hyphens: auto;
+  -ms-hyphens: auto;
+  hanging-punctuation: first last force-end;
+  -webkit-hanging-punctuation: first last force-end;
+  text-wrap: wrap;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  -moz-user-select: text !important;
+  -ms-user-select: text !important;
+}
+
+.reader-content.reader-large-font {
+  word-spacing: -0.018em !important;
+  letter-spacing: -0.003em !important;
+}
+
+.reader-content.reader-large-font p {
+  word-spacing: -0.018em !important;
+  letter-spacing: -0.003em !important;
+}
+
+.reader-content * {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  -moz-user-select: text !important;
+  -ms-user-select: text !important;
+}
+
+.reader-content p {
+  font-size: inherit;
+  line-height: inherit;
+  margin-bottom: 0;
+  text-indent: 1.5em;
+  text-align: justify;
+  text-align-last: left !important;
+  -webkit-text-align-last: left !important;
+  text-justify: inter-word;
+  -webkit-text-justify: inter-word;
+  word-spacing: -0.028em;
+  letter-spacing: -0.005em;
+  font-kerning: normal;
+  font-feature-settings: "kern" 1, "liga" 1, "calt" 1, "locl" 1;
+  text-rendering: optimizeLegibility;
+}
+
+/* Headings and Titles - Strictly Centered, Invariant to paragraph rules */
+.reader-content h1, 
+.reader-content h2, 
+.reader-content h3, 
+.reader-content h4, 
+.reader-content h5, 
+.reader-content h6,
+.reader-content .title,
+.reader-content strong.title,
+.reader-content .subtitle,
+.reader-content p.title,
+.reader-content p.subtitle,
+.reader-content .title p,
+.reader-content .subtitle p,
+.reader-content h1 p,
+.reader-content h2 p,
+.reader-content h3 p,
+.reader-content h4 p,
+.reader-content h5 p,
+.reader-content h6 p {
+  text-align: center !important;
+  text-align-last: center !important;
+  -webkit-text-align-last: center !important;
+  -moz-text-align-last: center !important;
+  display: block !important;
+  width: 100% !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  margin-top: 1.5em;
+  margin-bottom: 1em;
+  font-weight: bold;
+  letter-spacing: normal !important;
+  word-spacing: normal !important;
+  text-indent: 0 !important;
+}
+
+/* Book Typesetting: Poetry, Epigraphs, Quotes, Headings */
+.reader-content .poem,
+.reader-content .stanza,
+.reader-content .verse,
+.reader-content p.verse {
+  text-align: left !important;
+  text-align-last: left !important;
+  text-justify: auto !important;
+  text-indent: 0 !important;
+  word-spacing: normal !important;
+  letter-spacing: normal !important;
+  margin-bottom: 0.25em;
+}
+
+.reader-content .poem {
+  margin: 1.2em 0 1.2em 1.5em;
+  padding-left: 0.6em;
+  border-left: 2px solid rgba(128, 128, 128, 0.25);
+}
+
+.reader-content .stanza {
+  margin-bottom: 0.8em;
+}
+
+.reader-content .epigraph {
+  margin: 1em 0 1.5em auto;
+  max-width: 80%;
+  text-align: right !important;
+  text-align-last: right !important;
+  font-style: italic;
+  font-size: 0.92em;
+}
+
+.reader-content .epigraph p {
+  text-indent: 0 !important;
+  text-align: right !important;
+  text-align-last: right !important;
+  word-spacing: normal !important;
+}
+
+.reader-content .cite,
+.reader-content blockquote.cite {
+  margin: 1em 1em 1em 1.5em;
+  font-style: italic;
+  text-align: justify;
+  text-align-last: left !important;
+}
+
+.reader-content .text-author,
+.reader-content .date {
+  text-align: right !important;
+  text-align-last: right !important;
+  text-indent: 0 !important;
+  font-style: italic;
+  font-size: 0.9em;
+  margin-top: 0.5em;
+  margin-bottom: 0.8em;
+  word-spacing: normal !important;
+}
+
+.reader-content .empty-line {
+  display: block;
+  height: 1.2em;
+  line-height: 1.2em;
+  margin: 0;
+  padding: 0;
+}
+
+/* Theme-compliant Highlight */
+mark.search-highlight {
+  background-color: rgba(255, 255, 255, 0.25);
+  color: inherit;
+  border-radius: 4px;
+  padding: 0;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
+  display: inline;
+}
+
+/* PDF Text Layer Selection */
+.textLayer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+  opacity: 1;
+  line-height: 1.0;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  z-index: 2;
+  pointer-events: none;
+}
+.textLayer span,
+.textLayer br,
+.textLayer div {
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+  pointer-events: auto;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.textLayer span::selection,
+.textLayer br::selection,
+.textLayer div::selection,
+.textLayer ::selection {
+  background: rgba(0, 123, 255, 0.35) !important;
+  color: transparent !important;
+}
+.textLayer .endOfLine {
+  display: inline-block;
+  width: 100%;
+}
+
+/* Cover / Title Page Styles - Strictly fixed metrics, perfectly centered, invariant to font scaling */
+.reader-content .book-cover-page,
+.reader-content .book-cover-page *,
+.reader-content .book-cover-page p,
+.reader-content .book-cover-page h1,
+.reader-content .book-cover-page h2,
+.reader-content .book-cover-page div,
+.reader-content .book-cover-page span,
+.reader-content .book-cover-title,
+.reader-content .book-cover-author,
+.reader-content .titlepage,
+.reader-content .titlepage *,
+.reader-content .title-page,
+.reader-content .title-page *,
+.reader-content .title_page,
+.reader-content .title_page *,
+.reader-content [class*="titlepage"],
+.reader-content [class*="titlepage"] *,
+.book-cover-page,
+.book-cover-page *,
+.book-cover-page p,
+.book-cover-page h1,
+.book-cover-page h2,
+.book-cover-page div,
+.book-cover-page span,
+.book-cover-title,
+.book-cover-author,
+.titlepage,
+.titlepage *,
+.title-page,
+.title-page *,
+.title_page,
+.title_page *,
+.coverpage,
+.coverpage *,
+.cover-page,
+.cover-page * {
+  text-align: center !important;
+  text-align-last: center !important;
+  -webkit-text-align-last: center !important;
+  -moz-text-align-last: center !important;
+  text-indent: 0 !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  box-sizing: border-box !important;
+}
+
+.reader-content .book-cover-page p,
+.reader-content .titlepage p,
+.reader-content .title-page p,
+.reader-content .title_page p,
+.reader-content .coverpage p,
+.reader-content .cover-page p,
+.book-cover-page p,
+.titlepage p,
+.title-page p,
+.title_page p {
+  text-indent: 0 !important;
+  margin: 0 auto !important;
+  text-align: center !important;
+  text-align-last: center !important;
+  -webkit-text-align-last: center !important;
+  -moz-text-align-last: center !important;
+}
+
+.book-cover-page {
+  font-size: 16px !important;
+  line-height: 1.4 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  text-align: center !important;
+  padding: 16px 16px 24px 16px !important;
+  margin: 0 auto !important;
+  min-height: 55vh;
+  break-inside: avoid !important;
+  -webkit-column-break-inside: avoid !important;
+  page-break-inside: avoid !important;
+}
+
+.book-cover-page {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 100% !important;
+  max-height: 100% !important;
+  font-size: 16px !important;
+  line-height: 1.4 !important;
+  box-sizing: border-box !important;
+  margin: 0 auto !important;
+  padding: 0 !important;
+}
+
+.paged-content .book-cover-page {
+  height: 100% !important;
+  max-height: 100% !important;
+  min-height: 100% !important;
+  padding: 0 !important;
+  justify-content: center !important;
+  overflow: hidden !important;
+  break-inside: avoid !important;
+  -webkit-column-break-inside: avoid !important;
+  page-break-inside: avoid !important;
+  break-before: avoid !important;
+  break-after: avoid !important;
+  margin: 0 !important;
+}
+
+.book-cover-page .book-cover-image-container {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  width: 100% !important;
+  margin: 0 0 12px 0 !important;
+  flex-shrink: 1 !important;
+  min-height: 0 !important;
+}
+
+.book-cover-page img,
+.book-cover-page .book-cover-image {
+  max-width: 80% !important;
+  max-height: calc(100vh - 300px) !important;
+  margin: 0 auto !important;
+  object-fit: contain !important;
+  display: block !important;
+  border-radius: 4px;
+  flex-shrink: 1 !important;
+  height: auto !important;
+}
+
+.paged-content .book-cover-page img,
+.paged-content .book-cover-page .book-cover-image {
+  max-height: calc(100vh - 300px) !important;
+  max-width: 80% !important;
+}
+
+.book-cover-page h1,
+.book-cover-page .book-cover-title,
+.book-cover-page .title,
+.book-cover-title,
+.titlepage h1,
+.titlepage .title,
+.titlepage .book-title,
+.title-page h1,
+.title-page .title,
+.title-page .book-title,
+.title_page h1,
+.title_page .title,
+.title_page .book-title {
+  font-size: 19px !important;
+  line-height: 25px !important;
+  font-weight: 700 !important;
+  margin: 0 auto 6px auto !important;
+  padding: 0 !important;
+  text-indent: 0 !important;
+  text-align: center !important;
+  text-align-last: center !important;
+  -webkit-text-align-last: center !important;
+  -moz-text-align-last: center !important;
+  display: block !important;
+  width: 100% !important;
+  max-width: 90% !important;
+  flex-shrink: 0 !important;
+  break-inside: avoid !important;
+  -webkit-column-break-inside: avoid !important;
+}
+
+.book-cover-page h2,
+.book-cover-page p,
+.book-cover-page .book-cover-author,
+.book-cover-page .author,
+.book-cover-page .text-author,
+.book-cover-author,
+.titlepage h2,
+.titlepage .author,
+.titlepage .text-author,
+.titlepage .book-author,
+.title-page h2,
+.title-page .author,
+.title-page .text-author,
+.title-page .book-author,
+.title_page h2,
+.title_page .author,
+.title_page .text-author,
+.title_page .book-author {
+  font-size: 14px !important;
+  line-height: 19px !important;
+  font-weight: 400 !important;
+  font-style: italic !important;
+  opacity: 0.75 !important;
+  margin: 0 auto !important;
+  padding: 0 !important;
+  text-indent: 0 !important;
+  text-align: center !important;
+  text-align-last: center !important;
+  -webkit-text-align-last: center !important;
+  -moz-text-align-last: center !important;
+  display: block !important;
+  width: 100% !important;
+  max-width: 85% !important;
+  flex-shrink: 0 !important;
+  break-inside: avoid !important;
+  -webkit-column-break-inside: avoid !important;
+}
+
+/* Universal Anti-Outline, Anti-Ring, and Anti-Tap-Highlight Reset */
+*, *::before, *::after {
+  -webkit-tap-highlight-color: transparent !important;
+  -webkit-tap-highlight-color: rgba(0, 0, 0, 0) !important;
+  -webkit-focus-ring-color: transparent !important;
+  -webkit-touch-callout: none;
+}
+
+*:focus, *:focus-visible, *:focus-within, *:active,
+button, button:focus, button:focus-visible, button:active,
+a, a:focus, a:focus-visible, a:active,
+[role="button"], [role="button"]:focus, [role="button"]:focus-visible, [role="button"]:active {
+  outline: 0 !important;
+  outline: none !important;
+  outline-style: none !important;
+  outline-width: 0 !important;
+  outline-color: transparent !important;
+  outline-offset: 0 !important;
+  -webkit-tap-highlight-color: transparent !important;
+  -webkit-tap-highlight-color: rgba(0, 0, 0, 0) !important;
+  -webkit-focus-ring-color: transparent !important;
+}
+
+button:focus, button:focus-visible, button:active,
+a:focus, a:focus-visible, a:active,
+[role="button"]:focus, [role="button"]:focus-visible, [role="button"]:active {
+  box-shadow: none !important;
+  --tw-ring-color: transparent !important;
+  --tw-ring-shadow: none !important;
+  --tw-ring-offset-shadow: none !important;
+}
+
+button, [role="button"], a {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ==========================================================================
+   PDF.js Text Layer - Precise, transparent selection overlay
+   ========================================================================== */
+.textLayer {
+  position: absolute !important;
+  inset: 0 !important;
+  opacity: 1 !important;
+  z-index: 2 !important;
+  pointer-events: auto !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  overflow: hidden !important;
+  line-height: 1 !important;
+}
+
+.textLayer :is(span, br) {
+  color: transparent !important;
+  cursor: text !important;
+  position: absolute !important;
+  white-space: pre !important;
+  transform-origin: 0% 0% !important;
+  -webkit-user-select: text !important;
+  -moz-user-select: text !important;
+  user-select: text !important;
+  line-height: 1 !important;
+}
+
+.textLayer ::selection {
+  background: rgba(59, 130, 246, 0.35) !important;
+  color: transparent !important;
+}
+
+.textLayer span::-moz-selection {
+  background: rgba(59, 130, 246, 0.35) !important;
+  color: transparent !important;
+}
+
+
+
