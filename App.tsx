@@ -956,41 +956,65 @@ function App() {
                             onExternalLinkClick={(href) => {
                                 if (href.startsWith('#') && href.length > 1) {
                                     const id = href.substring(1);
-                                    (window as any).__pendingScrollTarget = id;
+                                    const cleanId = id.replace(/^(ref-|note-)/, '').replace(/_back$/, '');
                                     
-                                    const noteIdVariants = Array.from(new Set([
-                                        id,
-                                        id.startsWith('note-') ? id : `note-${id}`,
-                                        id.startsWith('note-') ? id.replace(/^note-/, '') : id,
-                                        id.startsWith('ref-') ? id.replace(/^ref-/, 'note-') : id,
-                                        id.startsWith('ref-') ? id.replace(/^ref-/, '') : id
-                                    ])).filter(Boolean);
+                                    const curChName = (currentBook.chapters[currentChapterIndex]?.name || '').toLowerCase();
+                                    const isCurrentlyInNotes = curChName === 'сноски' || curChName === 'notes' || curChName === 'footnotes' || curChName === 'примечания';
+                                    const isBackLink = id.startsWith('ref-') || id.includes('back') || href.includes('back') || isCurrentlyInNotes;
 
                                     let targetChapterIndex = -1;
                                     let matchedTargetId = id;
+                                    let targetProgress: number | null = null;
 
-                                    // 1. Check exact ID/name attribute across all chapters
-                                    for (const variant of noteIdVariants) {
-                                        const foundIdx = currentBook.chapters.findIndex((ch: any) => 
-                                            ch.content && (
-                                                ch.content.includes(`id="${variant}"`) || 
-                                                ch.content.includes(`id='${variant}'`) ||
-                                                ch.content.includes(`name="${variant}"`) ||
-                                                ch.content.includes(`name='${variant}'`)
-                                            )
-                                        );
-                                        if (foundIdx !== -1) {
-                                            targetChapterIndex = foundIdx;
-                                            matchedTargetId = variant;
-                                            break;
+                                    if (isBackLink) {
+                                        // A. Return from Notes: Check navStack first to restore exact chapter and scroll position
+                                        if (navStack.length > 0) {
+                                            const lastNav = navStack[navStack.length - 1];
+                                            setNavStack(prev => prev.slice(0, -1));
+                                            targetChapterIndex = lastNav.chapterIndex;
+                                            targetProgress = lastNav.progress;
+                                            matchedTargetId = id.startsWith('ref-') ? id : `ref-${cleanId}`;
                                         }
-                                    }
 
-                                    // 2. Fallback: Search in OTHER chapters (excluding current chapter to avoid self-matching link tags)
-                                    if (targetChapterIndex === -1) {
+                                        // B. If not in navStack, search other chapters for the anchor or link referring to this footnote
+                                        if (targetChapterIndex === -1) {
+                                            const foundIdx = currentBook.chapters.findIndex((ch: any, idx: number) => {
+                                                if (idx === currentChapterIndex) return false;
+                                                if (!ch.content) return false;
+                                                return ch.content.includes(`id="${id}"`) ||
+                                                       ch.content.includes(`id='${id}'`) ||
+                                                       ch.content.includes(`id="ref-${cleanId}"`) ||
+                                                       ch.content.includes(`id='ref-${cleanId}'`) ||
+                                                       ch.content.includes(`name="ref-${cleanId}"`) ||
+                                                       ch.content.includes(`name='ref-${cleanId}'`) ||
+                                                       ch.content.includes(`href="#note-${cleanId}"`) ||
+                                                       ch.content.includes(`href='#note-${cleanId}'`) ||
+                                                       ch.content.includes(`href="#${cleanId}"`) ||
+                                                       ch.content.includes(`href='#${cleanId}'`);
+                                            });
+                                            if (foundIdx !== -1) {
+                                                targetChapterIndex = foundIdx;
+                                                matchedTargetId = `ref-${cleanId}`;
+                                            }
+                                        }
+                                    } else {
+                                        // Forward Link (from chapter text to footnote in notes chapter or other chapter)
+                                        const noteIdVariants = Array.from(new Set([
+                                            id,
+                                            `note-${cleanId}`,
+                                            cleanId,
+                                            id.startsWith('note-') ? id : `note-${id}`
+                                        ])).filter(Boolean);
+
+                                        // 1. Search in OTHER chapters (so we don't accidentally match the originating link)
                                         for (const variant of noteIdVariants) {
                                             const foundIdx = currentBook.chapters.findIndex((ch: any, idx: number) => 
-                                                idx !== currentChapterIndex && ch.content && ch.content.includes(variant)
+                                                idx !== currentChapterIndex && ch.content && (
+                                                    ch.content.includes(`id="${variant}"`) || 
+                                                    ch.content.includes(`id='${variant}'`) ||
+                                                    ch.content.includes(`name="${variant}"`) ||
+                                                    ch.content.includes(`name='${variant}'`)
+                                                )
                                             );
                                             if (foundIdx !== -1) {
                                                 targetChapterIndex = foundIdx;
@@ -998,33 +1022,44 @@ function App() {
                                                 break;
                                             }
                                         }
-                                    }
 
-                                    // 3. Fallback: check explicitly named Notes chapter
-                                    if (targetChapterIndex === -1) {
-                                        const notesChapterIdx = currentBook.chapters.findIndex((ch: any) => {
-                                            const name = (ch.name || '').toLowerCase();
-                                            return name === 'сноски' || name === 'notes' || name === 'footnotes' || name === 'примечания';
-                                        });
-                                        if (notesChapterIdx !== -1 && notesChapterIdx !== currentChapterIndex) {
-                                            targetChapterIndex = notesChapterIdx;
-                                        } else if (id.includes('note') || id.includes('cite') || id.includes('fn') || id.includes('ref')) {
-                                            targetChapterIndex = currentBook.chapters.length - 1;
+                                        // 2. Fallback: check explicitly named Notes chapter
+                                        if (targetChapterIndex === -1) {
+                                            const notesChapterIdx = currentBook.chapters.findIndex((ch: any) => {
+                                                const name = (ch.name || '').toLowerCase();
+                                                return name === 'сноски' || name === 'notes' || name === 'footnotes' || name === 'примечания';
+                                            });
+                                            if (notesChapterIdx !== -1 && notesChapterIdx !== currentChapterIndex) {
+                                                targetChapterIndex = notesChapterIdx;
+                                                matchedTargetId = `note-${cleanId}`;
+                                            } else if (id.includes('note') || id.includes('cite') || id.includes('fn')) {
+                                                targetChapterIndex = currentBook.chapters.length - 1;
+                                            }
                                         }
                                     }
 
                                     (window as any).__pendingScrollTarget = matchedTargetId;
 
-                                    if (targetChapterIndex !== -1) {
-                                        setNavStack(prev => [...prev, { chapterIndex: currentChapterIndex, progress: readerProgress }]);
+                                    if (targetChapterIndex !== -1 && targetChapterIndex !== currentChapterIndex) {
+                                        if (!isBackLink) {
+                                            setNavStack(prev => [...prev, { chapterIndex: currentChapterIndex, progress: readerProgress }]);
+                                        }
                                         setCurrentChapterIndex(targetChapterIndex);
+                                        if (targetProgress !== null) {
+                                            setReaderProgress(targetProgress);
+                                        }
                                         
                                         let attempts = 0;
                                         const scrollIter = () => {
+                                            const cleanIdStr = matchedTargetId.replace(/^(ref-|note-)/, '');
                                             const el = document.getElementById(matchedTargetId) ||
                                                        document.getElementsByName(matchedTargetId)[0] ||
                                                        document.querySelector(`[id="${matchedTargetId}"]`) ||
-                                                       document.querySelector(`[name="${matchedTargetId}"]`);
+                                                       document.querySelector(`[name="${matchedTargetId}"]`) ||
+                                                       document.querySelector(`[id="ref-${cleanIdStr}"]`) ||
+                                                       document.querySelector(`[name="ref-${cleanIdStr}"]`) ||
+                                                       document.querySelector(`a[href="#note-${cleanIdStr}"]`) ||
+                                                       document.querySelector(`a[href="#${cleanIdStr}"]`);
                                             if (el) {
                                                 el.scrollIntoView({behavior: 'smooth', block: 'center'});
                                             } else if (attempts < 20) {

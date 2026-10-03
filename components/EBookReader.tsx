@@ -43,6 +43,52 @@ function shouldSkipBionic(node: Node): boolean {
   return false;
 }
 
+export function getBionicBoldLength(length: number): number {
+  if (length <= 1) return 1;
+  if (length <= 3) return 1;
+  if (length <= 5) return 2;
+  if (length <= 7) return 3;
+  if (length <= 9) return 4;
+  return Math.ceil(length * 0.4);
+}
+
+function getSearchHighlightColors(style?: string, th?: 'dark' | 'light') {
+  if (style === 'Bimbo') {
+    return {
+      bg: th === 'dark' ? 'rgba(244, 63, 94, 0.45)' : 'rgba(251, 113, 133, 0.38)',
+      outline: '#e11d48',
+    };
+  }
+  if (style === 'Surf') {
+    return {
+      bg: th === 'dark' ? 'rgba(14, 165, 233, 0.45)' : 'rgba(56, 189, 248, 0.38)',
+      outline: '#0284c7',
+    };
+  }
+  if (style === 'Dragon') {
+    return {
+      bg: th === 'dark' ? 'rgba(249, 115, 22, 0.45)' : 'rgba(251, 146, 60, 0.40)',
+      outline: '#ea580c',
+    };
+  }
+  if (style === 'Marcel') {
+    return {
+      bg: th === 'dark' ? 'rgba(168, 85, 247, 0.45)' : 'rgba(192, 132, 252, 0.38)',
+      outline: '#9333ea',
+    };
+  }
+  if (style === 'Final' || style === 'Final Fantasy') {
+    return {
+      bg: th === 'dark' ? 'rgba(234, 179, 8, 0.45)' : 'rgba(250, 204, 21, 0.38)',
+      outline: '#ca8a04',
+    };
+  }
+  return {
+    bg: th === 'dark' ? 'rgba(245, 158, 11, 0.45)' : 'rgba(251, 191, 36, 0.38)',
+    outline: th === 'dark' ? '#f59e0b' : '#d97706',
+  };
+}
+
 function createBionicFragment(text: string, document: Document): DocumentFragment {
   const fragment = document.createDocumentFragment();
   // Include soft hyphen (\xad) character in the word regex so hyphenated word syllables are matched as part of a single word
@@ -72,7 +118,7 @@ function createBionicFragment(text: string, document: Document): DocumentFragmen
     if (realLen === 0) {
       regularPart = word;
     } else {
-      const boldLen = realLen <= 3 ? Math.max(1, realLen - 1) : Math.ceil(realLen * 0.5);
+      const boldLen = getBionicBoldLength(realLen);
       let boldCharCount = 0;
       let splitIndex = 0;
       for (let i = 0; i < word.length; i++) {
@@ -652,7 +698,7 @@ function transformChapterContent(
               for (let i = 0; i < fullWord.length; i++) {
                 if (fullWord.charCodeAt(i) !== 173) realLen++;
               }
-              const boldLen = realLen <= 3 ? Math.max(1, realLen - 1) : Math.ceil(realLen * 0.5);
+              const boldLen = getBionicBoldLength(realLen);
               let boldCharCount = 0;
               let splitIndex = 0;
               for (let i = 0; i < fullWord.length; i++) {
@@ -904,7 +950,18 @@ const EBookReader: React.FC<EBookReaderProps> = ({
     ))
   );
 
-  // Paged Reading Mode State (Pseudo-pages sliced from microtyped text column)
+  const isNotesPage = Boolean(
+    chapter?.name?.toLowerCase() === "сноски" ||
+    chapter?.name?.toLowerCase() === "notes" ||
+    chapter?.name?.toLowerCase() === "footnotes" ||
+    chapter?.name?.toLowerCase() === "примечания" ||
+    (chapter?.content && (
+      chapter.content.includes('class="notes-list"') ||
+      chapter.content.includes("class='notes-list'") ||
+      chapter.content.includes('class="note-entry"') ||
+      chapter.content.includes("class='note-entry'")
+    ))
+  );
   const [pageIndex, setPageIndex] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [pageSlices, setPageSlices] = useState<{ startY: number; endY: number }[]>([{ startY: 0, endY: 0 }]);
@@ -1991,10 +2048,13 @@ const EBookReader: React.FC<EBookReaderProps> = ({
 
       if (foundRange) {
           const mark = document.createElement('mark');
-          mark.className = "search-highlight bg-amber-300 text-black px-1 rounded animate-pulse shadow-md font-bold z-10 relative";
+          mark.className = "search-highlight";
           mark.id = "current-highlight";
-          mark.style.backgroundColor = "#fcd34d";
-          mark.style.color = "#000000";
+          
+          const highlightColors = getSearchHighlightColors(appStyle, theme);
+          mark.style.backgroundColor = highlightColors.bg;
+          mark.style.outline = `2px solid ${highlightColors.outline}`;
+          mark.style.outlineOffset = "1px";
 
           try {
               const contents = foundRange.extractContents();
@@ -2262,12 +2322,23 @@ const EBookReader: React.FC<EBookReaderProps> = ({
       if (!targetId) return;
 
       const runScroll = () => {
+          const cleanId = targetId.replace(/^(ref-|note-)/, '').replace(/_back$/, '');
           const targetEl = document.getElementById(targetId) || 
                            document.getElementsByName(targetId)[0] ||
                            contentRef.current?.querySelector(`[id="${targetId}"]`) || 
                            contentRef.current?.querySelector(`[name="${targetId}"]`) ||
+                           contentRef.current?.querySelector(`[id="ref-${cleanId}"]`) || 
+                           contentRef.current?.querySelector(`[name="ref-${cleanId}"]`) || 
+                           contentRef.current?.querySelector(`[id="note-${cleanId}"]`) || 
+                           contentRef.current?.querySelector(`a[href="#note-${cleanId}"]`) || 
+                           contentRef.current?.querySelector(`a[href="#${cleanId}"]`) || 
                            containerRef.current?.querySelector(`[id="${targetId}"]`) || 
-                           containerRef.current?.querySelector(`[name="${targetId}"]`);
+                           containerRef.current?.querySelector(`[name="${targetId}"]`) ||
+                           containerRef.current?.querySelector(`[id="ref-${cleanId}"]`) || 
+                           containerRef.current?.querySelector(`[name="ref-${cleanId}"]`) || 
+                           containerRef.current?.querySelector(`[id="note-${cleanId}"]`) || 
+                           containerRef.current?.querySelector(`a[href="#note-${cleanId}"]`) || 
+                           containerRef.current?.querySelector(`a[href="#${cleanId}"]`);
 
           if (targetEl) {
               if (isPagedMode) {
@@ -2410,14 +2481,23 @@ const EBookReader: React.FC<EBookReaderProps> = ({
               if (href.startsWith('#')) {
                   const targetId = href.substring(1);
                   (window as any).__pendingScrollTarget = targetId;
+                  const isBackLink = targetId.startsWith('ref-') || targetId.includes('back') || linkTarget.classList.contains('note-back-link');
                   
                   const findLocalElement = (idStr: string, root: HTMLElement | null) => {
                       if (!root || !idStr) return null;
+                      const clean = idStr.replace(/^(ref-|note-)/, '').replace(/_back$/, '');
+                      if (isBackLink) {
+                          return root.querySelector(`[id="${idStr}"]`) || 
+                                 root.querySelector(`[name="${idStr}"]`) ||
+                                 root.querySelector(`[id="ref-${clean}"]`) || 
+                                 root.querySelector(`[name="ref-${clean}"]`) ||
+                                 root.querySelector(`a[href="#note-${clean}"]`) ||
+                                 root.querySelector(`a[href="#${clean}"]`);
+                      }
                       return root.querySelector(`[id="${idStr}"]`) || 
                              root.querySelector(`[name="${idStr}"]`) ||
                              (!idStr.startsWith('note-') ? root.querySelector(`[id="note-${idStr}"]`) : null) ||
-                             (idStr.startsWith('note-') ? root.querySelector(`[id="${idStr.replace(/^note-/, '')}"]`) : null) ||
-                             (idStr.startsWith('ref-') ? root.querySelector(`[id="${idStr.replace(/^ref-/, 'note-')}"]`) || root.querySelector(`[id="${idStr.replace(/^ref-/, '')}"]`) : null);
+                             (idStr.startsWith('note-') ? root.querySelector(`[id="${idStr.replace(/^note-/, '')}"]`) : null);
                   };
 
                   if (isPagedMode) {
@@ -2441,10 +2521,7 @@ const EBookReader: React.FC<EBookReaderProps> = ({
                           if (onExternalLinkClick) onExternalLinkClick(href);
                       }
                   } else {
-                      const targetEl = findLocalElement(targetId, containerRef.current) ||
-                                       document.getElementById(targetId) ||
-                                       document.getElementById(`note-${targetId}`) ||
-                                       (targetId.startsWith('note-') ? document.getElementById(targetId.replace(/^note-/, '')) : null);
+                      const targetEl = findLocalElement(targetId, containerRef.current);
                       if (targetEl) {
                           targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
                       } else {
@@ -3417,32 +3494,103 @@ const EBookReader: React.FC<EBookReaderProps> = ({
             text-decoration-thickness: 2px;
           }
           
-          /* Footnotes Section Styling (for the dedicated chapter) */
+          /* Search highlight without shifting text layout */
+          mark.search-highlight {
+            display: inline !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            border: none !important;
+            font-weight: inherit !important;
+            font-style: inherit !important;
+            font-size: inherit !important;
+            line-height: inherit !important;
+            letter-spacing: inherit !important;
+            word-spacing: inherit !important;
+            box-shadow: none !important;
+            border-radius: 2px !important;
+            color: inherit !important;
+            box-decoration-break: clone !important;
+            -webkit-box-decoration-break: clone !important;
+            position: relative !important;
+            z-index: 10 !important;
+          }
+
+          /* Footnotes Section Styling (fixed standard small compact typography) */
+          .reader-content.is-notes-chapter,
+          .reader-content .notes-list,
+          .reader-content .note-entry,
+          .reader-content .note-content,
+          .reader-content .note-content span,
+          .reader-content .note-content p,
+          .reader-content .note-content div,
+          .reader-content .note-content strong,
+          .reader-content .note-content em,
+          .reader-content .note-content a {
+             font-size: 13px !important;
+             line-height: 1.5 !important;
+          }
+
+          .reader-content.is-notes-chapter h1,
+          .reader-content.is-notes-chapter .title,
+          .reader-content.is-notes-chapter h2,
+          .reader-content.is-notes-chapter h3,
+          .reader-content .notes-title {
+             font-size: 20px !important;
+             line-height: 1.35 !important;
+             margin-top: 0.5rem !important;
+             margin-bottom: 1.25rem !important;
+          }
+
           .reader-content .notes-list {
-             margin-top: 2rem;
+             margin-top: 1.25rem !important;
           }
+
           .reader-content .note-entry {
-             margin-bottom: 1.5rem;
+             display: block !important;
+             margin-bottom: 1rem !important;
+             text-indent: 0 !important;
+             line-height: 1.5 !important;
           }
+
+          .reader-content .note-entry p {
+             display: inline !important;
+             margin: 0 !important;
+             text-indent: 0 !important;
+             line-height: inherit !important;
+          }
+
           .reader-content .note-content {
-             display: inline;
+             display: inline !important;
+             line-height: inherit !important;
           }
-          .reader-content .note-header {
-             display: inline-block;
-             margin-right: 0.5em;
-          }
+
           .reader-content .note-back-link {
              text-decoration: none !important;
              font-weight: bold;
-             background: rgba(128,128,128,0.2);
-             padding: 0px 6px;
+             font-size: 11.5px !important;
+             line-height: 1 !important;
+             background: rgba(128,128,128,0.18);
+             padding: 1.5px 4.5px !important;
+             margin-right: 5px !important;
              border-radius: 4px;
+             display: inline-flex !important;
+             align-items: center;
+             justify-content: center;
+             vertical-align: 1px;
+             transition: background-color 0.15s ease, transform 0.1s ease;
+             cursor: pointer;
           }
+
+          .reader-content .note-back-link:hover {
+             background: rgba(128,128,128,0.35);
+             transform: scale(1.08);
+          }
+
           .reader-content .note-divider {
              width: 20%;
-             margin-top: 0.5rem;
-             margin-bottom: 0.5rem;
-             border-top: 1px solid rgba(128,128,128, 0.3);
+             margin-top: 0.6rem;
+             margin-bottom: 0.6rem;
+             border-top: 1px solid rgba(128,128,128, 0.25);
           }
 
           /* Pseudo-page viewport styling */
@@ -3538,10 +3686,10 @@ const EBookReader: React.FC<EBookReaderProps> = ({
                         ref={contentRef}
                         lang="ru"
                         onClick={handleContentInteract}
-                        className={`reader-content ${fontSize > 0.9 ? 'reader-large-font' : ''} prose ${theme === 'light' ? 'prose-stone' : 'prose-invert'} prose-lg max-w-none [&>img]:mx-auto [&>img]:max-w-full [&>img]:h-auto [&>img]:block`}
+                        className={`reader-content ${fontSize > 0.9 ? 'reader-large-font' : ''} ${isNotesPage ? 'is-notes-chapter' : ''} prose ${theme === 'light' ? 'prose-stone' : 'prose-invert'} prose-lg max-w-none [&>img]:mx-auto [&>img]:max-w-full [&>img]:h-auto [&>img]:block`}
                         style={{
-                            fontSize: isCoverPage ? '1rem' : `${fontSize}rem`,
-                            lineHeight: isCoverPage ? '1.4' : '1.6',
+                            fontSize: isCoverPage ? '1rem' : (isNotesPage ? '0.95rem' : `${fontSize}rem`),
+                            lineHeight: isCoverPage ? '1.4' : (isNotesPage ? '1.55' : '1.6'),
                             ...(isPagedMode ? {
                                 width: '100%',
                                 boxSizing: 'border-box',

@@ -216,6 +216,7 @@ export const parseFb2 = async (file: Blob, bookId: string): Promise<Partial<Book
 
   // --- 1. INDEX FOOTNOTES GLOBALLY ---
   const notesMap = new Map<string, string>();
+  const notesIdList: string[] = [];
   
   const allBodies = Array.from(doc.querySelectorAll('body'));
   const notesBody = allBodies.find(b => {
@@ -260,8 +261,13 @@ export const parseFb2 = async (file: Blob, bookId: string): Promise<Partial<Book
                  }
              });
              
+             if (!notesMap.has(id)) {
+                 notesIdList.push(id);
+             }
              notesMap.set(id, noteHtml);
-             notesMap.set(id.toLowerCase(), noteHtml);
+             if (!notesMap.has(id.toLowerCase())) {
+                 notesMap.set(id.toLowerCase(), noteHtml);
+             }
           }
       }
   }
@@ -418,15 +424,15 @@ export const parseFb2 = async (file: Blob, bookId: string): Promise<Partial<Book
   }
 
   // --- 3. CREATE NOTES CHAPTER ---
-  if (notesMap.size > 0) {
-      let notesContent = `<h1 class="title">Сноски</h1><div class="notes-list">`;
-      notesMap.forEach((html, id) => {
+  if (notesIdList.length > 0) {
+      let notesContent = `<h1 class="title notes-title">Сноски</h1><div class="notes-list">`;
+      notesIdList.forEach((id) => {
+          const html = notesMap.get(id);
+          if (!html) return;
           notesContent += `
             <div class="note-entry" id="note-${id}">
-                <div class="note-header">
-                     <a href="#ref-${id}" class="note-back-link">^</a>
-                </div>
-                <div class="note-content">${html}</div>
+                <a href="#ref-${id}" class="note-back-link" title="Назад к тексту">↩</a>
+                <span class="note-content">${html}</span>
                 <hr class="note-divider"/>
             </div>
           `;
@@ -638,14 +644,12 @@ export const parseEpub = async (file: Blob, bookId: string): Promise<Partial<Boo
 
     // --- CREATE NOTES CHAPTER ---
     if (epubNotesMap.size > 0) {
-        let notesContent = `<h1 class="title">Сноски</h1><div class="notes-list">`;
+        let notesContent = `<h1 class="title notes-title">Сноски</h1><div class="notes-list">`;
         epubNotesMap.forEach((html, id) => {
             notesContent += `
               <div class="note-entry" id="note-${id}">
-                  <div class="note-header">
-                       <a href="#ref-${id}" class="note-back-link">^</a>
-                  </div>
-                  <div class="note-content">${html}</div>
+                  <a href="#ref-${id}" class="note-back-link" title="Назад к тексту">↩</a>
+                  <span class="note-content">${html}</span>
                   <hr class="note-divider"/>
               </div>
             `;

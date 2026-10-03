@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Chapter, Bookmark } from '../types';
 import { ChevronDown, ChevronRight, Minus } from 'lucide-react';
+import { convertChapterToMarkdown } from '../utils/markdown';
 
 interface ChapterSidebarProps {
   chapters: Chapter[];
@@ -49,11 +50,46 @@ const ChapterSidebar: React.FC<ChapterSidebarProps> = ({
   appStyle = "Cool",
   isAudio = false
 }) => {
+  const isMarcel = appStyle === 'Marcel';
+  const isBimbo = appStyle === 'Bimbo';
+  const isSurf = appStyle === 'Surf';
+  const isDragon = appStyle === 'Dragon';
+  const isFF = appStyle === 'Final Fantasy' || appStyle === 'Final';
+
+  const actionButtonClass = `w-full h-[64px] shrink-0 px-2.5 py-1 border-2 border-dashed rounded transition-all flex items-center gap-3 group text-left ${
+    isMarcel 
+      ? 'border-[#C4B5E6] bg-[#E8E0F5] text-[#544372] hover:bg-[#DBD0EF] hover:text-[#2F2440] hover:border-[#AC97D7]' 
+      : isBimbo 
+      ? 'border-[#FBCFE8] bg-[#FFF0F5] text-[#BE123C] hover:bg-pink-100 hover:border-[#F472B6]' 
+      : isSurf 
+      ? 'border-[#BAE6FD] bg-[#F0F9FF] text-[#0c4a6e] hover:bg-sky-100 hover:border-[#7dd3fc]' 
+      : isDragon
+      ? 'border-[#7f1d1d] bg-[#3a1a0e] text-[#fcd34d] hover:bg-[#4a2511] hover:border-[#991b1b]'
+      : isFF
+      ? 'border-[#406da3] bg-[#0d2347] text-[#f0deba] hover:bg-[#17335e] hover:border-[#dfc894]'
+      : 'border-[#57534e] bg-[#363330] text-[#fffff0] hover:bg-[#45413e] hover:border-[#666]'
+  }`;
+
+  const actionIconBoxClass = `w-10 h-14 shrink-0 rounded flex items-center justify-center ${
+    isMarcel
+      ? 'bg-[#C4B5E6]/40 text-[#544372]'
+      : isBimbo
+      ? 'bg-[#FBCFE8]/60 text-[#BE123C]'
+      : isSurf
+      ? 'bg-[#BAE6FD]/60 text-[#0284c7]'
+      : isDragon
+      ? 'bg-[#7f1d1d]/60 text-[#fcd34d]'
+      : isFF
+      ? 'bg-[#406da3]/60 text-[#dfc894]'
+      : 'bg-[#45413e]/70 text-[#fffff0]'
+  }`;
+
   const [isSearchMode, setIsSearchMode] = useState(false);
   const [isBookmarksMode, setIsBookmarksMode] = useState(false);
   const [isBookmarkSearchMode, setIsBookmarkSearchMode] = useState(false);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [bookmarkQuery, setBookmarkQuery] = useState('');
+  const [copiedChapter, setCopiedChapter] = useState(false);
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState<FlatSearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -219,6 +255,30 @@ const ChapterSidebar: React.FC<ChapterSidebarProps> = ({
       localStorage.setItem(storageKey, JSON.stringify(updated));
     } catch (err) {
       console.warn('Failed to save bookmarks after delete', err);
+    }
+  };
+
+  const handleCopyChapter = async () => {
+    const chapter = chapters[currentChapterIndex];
+    if (!chapter) return;
+    const md = convertChapterToMarkdown(chapter);
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(md);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = md;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      setCopiedChapter(true);
+      setTimeout(() => setCopiedChapter(false), 2000);
+    } catch (e) {
+      console.error('Failed to copy chapter', e);
     }
   };
 
@@ -652,23 +712,43 @@ const ChapterSidebar: React.FC<ChapterSidebarProps> = ({
         {isBookmarksMode ? (
             <div className="space-y-3 pb-10 pt-2 px-1">
                 {!isBookmarkSearchMode && !bookmarkQuery && (
-                  <button 
-                    onClick={handleAddBookmark}
-                    className={`w-full py-4 px-4 border-2 border-dashed rounded-xl transition-all flex flex-col items-center gap-1.5 group ${
-                      appStyle === 'Marcel' 
-                        ? 'border-[#C4B5E6] bg-[#E8E0F5]/50 text-[#544372] hover:bg-[#DBD0EF] hover:text-[#111111] hover:border-[#AC97D7]' 
-                        : appStyle === 'Bimbo' 
-                        ? 'border-[#FBCFE8] bg-white/30 text-[#BE123C] hover:bg-white/50' 
-                        : appStyle === 'Surf' 
-                        ? 'border-[#BAE6FD] bg-white/40 text-[#0c4a6e] hover:bg-white/60 hover:border-[#7dd3fc]' 
-                        : 'border-[#45413e] bg-[#23211f]/30 text-[#888] hover:text-[#fffff0] hover:bg-[#363330]'
-                    }`}
-                  >
-                    <span className="text-3xl group-hover:scale-110 transition-transform emoji">➕</span>
-                    <div className="flex flex-col items-center">
-                      <span className="text-sm font-bold uppercase tracking-widest">Add bookmark</span>
-                    </div>
-                  </button>
+                  <div className="space-y-2 mb-2">
+                    {/* 1. COPY CHAPTER Button (top) */}
+                    <button 
+                      onClick={handleCopyChapter}
+                      className={actionButtonClass}
+                      title="Copy chapter text as Markdown"
+                    >
+                      <div className={actionIconBoxClass}>
+                        <span className="text-xl group-hover:scale-110 transition-transform emoji">
+                          {copiedChapter ? '✅' : '📋'}
+                        </span>
+                      </div>
+                      <div className="flex flex-col min-w-0 flex-1 justify-center">
+                         <span className="text-xs font-bold uppercase tracking-wider">
+                           {copiedChapter ? 'Copied to clipboard' : 'Copy chapter'}
+                         </span>
+                         <span className="text-[8.5px] opacity-60 font-mono mt-0.5 leading-snug line-clamp-1">
+                           {copiedChapter ? 'Markdown text in clipboard' : 'Markdown (.md) format'}
+                         </span>
+                      </div>
+                    </button>
+
+                    {/* 2. Add bookmark button (styled identically to add book) */}
+                    <button 
+                      onClick={handleAddBookmark}
+                      className={actionButtonClass}
+                      title="Add bookmark at current position"
+                    >
+                      <div className={actionIconBoxClass}>
+                        <span className="text-xl group-hover:scale-110 transition-transform emoji">➕</span>
+                      </div>
+                      <div className="flex flex-col min-w-0 flex-1 justify-center">
+                         <span className="text-xs font-bold uppercase tracking-wider">Add bookmark</span>
+                         <span className="text-[8.5px] opacity-60 font-mono mt-0.5 leading-snug line-clamp-1">Current chapter & position</span>
+                      </div>
+                    </button>
+                  </div>
                 )}
 
                 {bookmarkQuery && filteredBookmarks.length === 0 && (
