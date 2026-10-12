@@ -109,7 +109,7 @@ export function EmptyState({
           ref={bookInputRef} 
           className="hidden" 
           multiple
-          accept=".fb2,.epub,.pdf,.cbz,.cbr,.bin,.mp3,.m4b,.m4a,.mp4,audio/*"
+          accept=".fb2,.epub,.pdf,.cbz,.cbr,.bin,.mp3,.m4b,.m4a,.mp4,audio/*,.jpg,.jpeg,.png,.webp,image/*"
           onChange={(e) => {
             const files = e.target.files;
             if (files && files.length > 0) {

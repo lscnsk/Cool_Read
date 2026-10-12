@@ -261,7 +261,43 @@ const ChapterSidebar: React.FC<ChapterSidebarProps> = ({
   const handleCopyChapter = async () => {
     const chapter = chapters[currentChapterIndex];
     if (!chapter) return;
-    const md = convertChapterToMarkdown(chapter);
+    const readerEl = document.querySelector('.reader-content');
+    const liveHtml = readerEl ? readerEl.innerHTML : undefined;
+
+    // Check if chapters structure contains multi-page chapters (PDF headers)
+    const headerPages = chapters
+      .map((ch, idx) => ({ idx, isHeader: ch.isHeader }))
+      .filter(item => item.isHeader)
+      .map(item => item.idx);
+
+    let sourceHtml = '';
+    if (headerPages.length > 0) {
+      let startIdx = 0;
+      for (let i = 0; i < headerPages.length; i++) {
+        if (headerPages[i] <= currentChapterIndex) {
+          startIdx = headerPages[i];
+        } else {
+          break;
+        }
+      }
+      const nextHeaderIdx = headerPages.find(p => p > currentChapterIndex);
+      const endIdx = nextHeaderIdx !== undefined ? nextHeaderIdx : chapters.length;
+
+      const pageContents: string[] = [];
+      for (let i = startIdx; i < endIdx; i++) {
+        if (chapters[i]?.content) {
+          pageContents.push(chapters[i].content!);
+        }
+      }
+      sourceHtml = pageContents.join('\n\n');
+    } else {
+      const getTextLen = (s?: string) => (s || '').replace(/<[^>]*>/g, '').trim().length;
+      const liveLen = getTextLen(liveHtml);
+      const chLen = getTextLen(chapter.content);
+      sourceHtml = (liveHtml && liveLen >= chLen) ? liveHtml : (chapter.content || liveHtml || '');
+    }
+
+    const md = convertChapterToMarkdown(chapter, sourceHtml);
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(md);

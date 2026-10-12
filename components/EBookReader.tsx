@@ -171,7 +171,8 @@ function transformChapterContent(
   rawContent: string,
   isCoverPage: boolean,
   isBionic: boolean,
-  isRsvpMode: boolean
+  isRsvpMode: boolean,
+  isStyledMode: boolean = false
 ): string {
   if (!rawContent) return "";
   if (isCoverPage) {
@@ -240,13 +241,33 @@ function transformChapterContent(
     });
   } catch (e) {}
 
-  // 1.8. Normalize em-dashes and horizontal bars to normal-sized en-dashes (–)
+  // 1.8. Normalize horizontal bars, em-dashes, and styled mode typography (ё -> е, т. д. -> т.д.)
   try {
     const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, null);
     let n: Node | null;
     while (n = walker.nextNode()) {
-      if (n.nodeValue && /[\u2014\u2015]/.test(n.nodeValue)) {
-        n.nodeValue = n.nodeValue.replace(/[\u2014\u2015]/g, '–');
+      if (n.nodeValue) {
+        let val = n.nodeValue;
+        if (/[\u2014\u2015]/.test(val)) {
+          val = val.replace(/[\u2014\u2015]/g, '—');
+        }
+        if (isStyledMode) {
+          // Replace ё/Ё with е/Е
+          if (/[ёЁ]/.test(val)) {
+            val = val.replace(/ё/g, 'е').replace(/Ё/g, 'Е');
+          }
+          // Compress standard multi-token abbreviations into unbroken forms:
+          // т. д. -> т.д., т. п. -> т.п., т. е. -> т.е., т. к. -> т.к., в т. ч. -> в т.ч., и т. д. -> и т.д.
+          val = val
+            .replace(/([иИ])\.[ \t\u00A0\u202F]+([тТ])\.[ \t\u00A0\u202F]+([дД])\./gu, '$1.$2.$3.')
+            .replace(/([иИ])\.[ \t\u00A0\u202F]+([тТ])\.[ \t\u00A0\u202F]+([пП])\./gu, '$1.$2.$3.')
+            .replace(/(?:([вВ])[ \t\u00A0\u202F]+[тТ]\.[ \t\u00A0\u202F]*[чЧ]\.|([вВ])\.[ \t\u00A0\u202F]+[тТ]\.[ \t\u00A0\u202F]+[чЧ]\.)/gu, (_m, g1, g2) => ((g1 || g2) === 'В' ? 'В т.ч.' : 'в т.ч.'))
+            .replace(/([тТ])\.[ \t\u00A0\u202F]+([дД])\./gu, '$1.$2.')
+            .replace(/([тТ])\.[ \t\u00A0\u202F]+([пП])\./gu, '$1.$2.')
+            .replace(/([тТ])\.[ \t\u00A0\u202F]+([еЕ])\./gu, '$1.$2.')
+            .replace(/([тТ])\.[ \t\u00A0\u202F]+([кК])\./gu, '$1.$2.');
+        }
+        n.nodeValue = val;
       }
     }
   } catch (e) {}
@@ -267,11 +288,35 @@ function transformChapterContent(
     } catch (e) {}
   }
 
-  // 3. Clear leaked styles
+  // 3. Clear leaked styles and normalize tables
   const tables = doc.querySelectorAll('table');
   tables.forEach(table => {
     table.style.fontStyle = 'normal';
-    let next = table.nextElementSibling;
+    table.style.textIndent = '0px';
+
+    // Clear first-line indent on all elements inside tables
+    const allTableElements = table.querySelectorAll('p, div, span, td, th, tr, strong, em, b, i, a, li');
+    allTableElements.forEach(el => {
+      el.classList.add('no-indent');
+      (el as HTMLElement).style.textIndent = '0px';
+    });
+
+    // Ensure the table is wrapped in a responsive scrollable container
+    const parent = table.parentElement;
+    if (!parent || !parent.classList.contains('table-scroll-wrapper')) {
+      const wrapper = doc.createElement('div');
+      wrapper.className = 'table-scroll-wrapper';
+      wrapper.style.overflowX = 'auto';
+      wrapper.style.maxWidth = '100%';
+      wrapper.style.width = '100%';
+      wrapper.style.textIndent = '0px';
+      if (parent) {
+        parent.insertBefore(wrapper, table);
+        wrapper.appendChild(table);
+      }
+    }
+
+    let next = (table.closest('.table-scroll-wrapper') || table).nextElementSibling;
     while (next) {
       if (/^(p|div|h[1-6])$/i.test(next.tagName)) {
         const firstChild = next.firstElementChild;
@@ -286,6 +331,61 @@ function transformChapterContent(
       next = next.nextElementSibling;
     }
   });
+
+  // 3.1. Normalize bulleted list paragraphs (FB2/EPUB books often format bullet lists as <p>• item</p>)
+  try {
+    const bulletRegex = /^[\s\u00A0\u202F]*[•●▪▫◆◇◦\u2022\u25E6\u25AA\u25CF\u25CB\u25C6\u25C7\u25AB\u2043\u2219\u00B7]\s*/u;
+    const isBulletParagraph = (el: Element | null): boolean => {
+      if (!el || el.tagName.toLowerCase() !== 'p') return false;
+      const text = (el.textContent || '').trim();
+      return bulletRegex.test(text);
+    };
+
+    const paragraphs = Array.from(doc.querySelectorAll('p'));
+    const processed = new Set<Element>();
+
+    for (const p of paragraphs) {
+      if (processed.has(p) || !isBulletParagraph(p)) continue;
+
+      // Group consecutive bullet paragraphs
+      const group: Element[] = [p];
+      processed.add(p);
+      let next = p.nextElementSibling;
+      while (next && isBulletParagraph(next)) {
+        group.push(next);
+        processed.add(next);
+        next = next.nextElementSibling;
+      }
+
+      const ul = doc.createElement('ul');
+      ul.className = 'bullet-list';
+
+      for (const itemP of group) {
+        const li = doc.createElement('li');
+        
+        // Strip leading bullet symbol from the text
+        const walker = doc.createTreeWalker(itemP, NodeFilter.SHOW_TEXT, null);
+        const firstTextNode = walker.nextNode() as Text | null;
+        if (firstTextNode && firstTextNode.nodeValue) {
+          firstTextNode.nodeValue = firstTextNode.nodeValue.replace(bulletRegex, '');
+        }
+
+        while (itemP.firstChild) {
+          li.appendChild(itemP.firstChild);
+        }
+        ul.appendChild(li);
+      }
+
+      if (p.parentNode) {
+        p.parentNode.insertBefore(ul, p);
+        for (const itemP of group) {
+          if (itemP.parentNode) {
+            itemP.parentNode.removeChild(itemP);
+          }
+        }
+      }
+    }
+  } catch (e) {}
 
   // 3.4. Tighten punctuation in ... ?.. !..
   try {
@@ -333,7 +433,8 @@ function transformChapterContent(
         if (marks && dots) {
           const normDots = dots.replace(/…/g, '..');
           const span = doc.createElement('span');
-          span.className = 'punct-tight punct-tight-combo';
+          const endsWithQ = marks.endsWith('?');
+          span.className = `punct-tight punct-tight-combo ${endsWithQ ? 'punct-combo-question' : 'punct-combo-exclamation'}`;
 
           const markSpan = doc.createElement('span');
           markSpan.className = 'punct-mark';
@@ -396,8 +497,8 @@ function transformChapterContent(
       return false;
     };
 
-    const dashTestRegex = /(?:--|[\u2010-\u2015\u2013\u2014-])[ \t\u00A0\u202F]+(?=[«"'“„\(\[]*[\p{L}\p{N}])/u;
-    const dashExecRegex = /(^|[\s]+|(\S)[ \t\u00A0\u202F]+)(?:--|([\u2010-\u2015\u2013\u2014-]))[ \t\u00A0\u202F]+(?=([«"'“„\(\[]*)([\p{L}\p{N}]))/gu;
+    const dashTestRegex = /(?:(?:^|[\s]+)(?:--|[\u2010-\u2015\u2013\u2014-])[ \t\u00A0\u202F]*|(?:\S)[ \t\u00A0\u202F]+(?:--|[\u2010-\u2015\u2013\u2014-])[ \t\u00A0\u202F]+)(?=[«"'“„\(\[]*[\p{L}\p{N}])/u;
+    const dashExecRegex = /(?:(^|[\s]+)(?:--|([\u2010-\u2015\u2013\u2014-]))[ \t\u00A0\u202F]*|(\S)[ \t\u00A0\u202F]+(?:--|([\u2010-\u2015\u2013\u2014-]))[ \t\u00A0\u202F]+)(?=([«"'“„\(\[]*)([\p{L}\p{N}]))/gu;
     
     const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, null);
     const textNodes: Text[] = [];
@@ -407,6 +508,22 @@ function transformChapterContent(
         textNodes.push(n as Text);
       }
     }
+
+    const createIntermediateDash = (isItalic: boolean): Node => {
+      const dashSpan = doc.createElement('span');
+      dashSpan.className = 'reader-dash';
+      const glyphSpan = doc.createElement('span');
+      glyphSpan.className = 'reader-dash-glyph';
+      glyphSpan.textContent = '—';
+      if (isItalic) {
+        const emEl = doc.createElement('em');
+        emEl.appendChild(glyphSpan);
+        dashSpan.appendChild(emEl);
+      } else {
+        dashSpan.appendChild(glyphSpan);
+      }
+      return dashSpan;
+    };
 
     for (const node of textNodes) {
       const parent = node.parentNode;
@@ -435,8 +552,11 @@ function transformChapterContent(
       if (!dashExecRegex.test(text) && isBoundaryDash(text, node)) {
         const boundaryMatch = text.match(/(?:^|([\s]+)|(\S)[ \t\u00A0\u202F]+)(?:--|([\u2010-\u2015\u2013\u2014-]))[ \t\u00A0\u202F]*$/);
         if (boundaryMatch) {
-          const rawDash = boundaryMatch[3] || '–';
-          const dashChar = (rawDash === '—' || rawDash === '―') ? '–' : rawDash;
+          const matchStart = boundaryMatch.index || 0;
+          if (matchStart > 0) {
+            fragment.appendChild(doc.createTextNode(text.substring(0, matchStart)));
+          }
+
           const nextText = effNext?.textContent?.trimStart() || '';
           const nextChar = nextText.charAt(0);
           const isFollowedByCapital = /[\p{Lu}]/u.test(nextChar);
@@ -446,15 +566,6 @@ function transformChapterContent(
           );
           const isTouchingItalic = isInsideItalic || Boolean(isNextItalic);
 
-          const renderDash = (): Node => {
-            if (isTouchingItalic && !isInsideItalic) {
-              const emEl = doc.createElement('em');
-              emEl.textContent = dashChar;
-              return emEl;
-            }
-            return doc.createTextNode(dashChar);
-          };
-
           const prec = boundaryMatch[2];
           if (isFollowedByCapital || !prec) {
             const wrapperSpan = doc.createElement('span');
@@ -462,7 +573,7 @@ function transformChapterContent(
             if (prec) {
               wrapperSpan.appendChild(doc.createTextNode(prec + '\u00A0'));
             }
-            wrapperSpan.appendChild(renderDash());
+            wrapperSpan.appendChild(createIntermediateDash(isTouchingItalic && !isInsideItalic));
             const spaceSpan = doc.createElement('span');
             spaceSpan.className = 'dash-space';
             spaceSpan.textContent = ' ';
@@ -472,7 +583,7 @@ function transformChapterContent(
             const nowrapSpan = doc.createElement('span');
             nowrapSpan.className = 'dash-word-lead';
             nowrapSpan.appendChild(doc.createTextNode(prec + '\u00A0'));
-            nowrapSpan.appendChild(renderDash());
+            nowrapSpan.appendChild(createIntermediateDash(isTouchingItalic && !isInsideItalic));
             fragment.appendChild(nowrapSpan);
             fragment.appendChild(doc.createTextNode(' '));
           }
@@ -485,10 +596,10 @@ function transformChapterContent(
 
       while ((match = dashExecRegex.exec(text)) !== null) {
         const matchStart = match.index;
-        const precedingChar = match[2]; // If preceded by a non-whitespace character in the same text node
-        const rawDash = match[3] || '–';
-        const dashChar = (rawDash === '—' || rawDash === '―') ? '–' : rawDash;
-        const nextChar = match[5] || '';
+        const precedingChar = match[3]; // If preceded by a non-whitespace character in the same text node
+        const rawDash = match[2] || match[4] || '—';
+        const dashChar = rawDash;
+        const nextChar = match[6] || '';
         const isFollowedByCapital = /[\p{Lu}]/u.test(nextChar);
 
         // Check if the dash is touching italics
@@ -524,12 +635,7 @@ function transformChapterContent(
         }
 
         const renderDashText = (): Node => {
-          if (isTouchingItalic && !isInsideItalic) {
-            const emEl = doc.createElement('em');
-            emEl.textContent = dashChar;
-            return emEl;
-          }
-          return doc.createTextNode(dashChar);
+          return createIntermediateDash(isTouchingItalic && !isInsideItalic);
         };
 
         const isAtLeadingElementBoundary = !precedingChar && effPrev && (matchStart === 0 || (lastIdx === 0 && /^\s*$/.test(text.substring(0, matchStart))));
@@ -596,14 +702,8 @@ function transformChapterContent(
             fragment.appendChild(nowrapSpan);
             fragment.appendChild(doc.createTextNode(' '));
           } else {
-            if (isTouchingItalic && !isInsideItalic) {
-              const emEl = doc.createElement('em');
-              emEl.textContent = dashChar;
-              fragment.appendChild(emEl);
-              fragment.appendChild(doc.createTextNode(' '));
-            } else {
-              fragment.appendChild(doc.createTextNode(dashChar + ' '));
-            }
+            fragment.appendChild(renderDashText());
+            fragment.appendChild(doc.createTextNode(' '));
           }
         }
 
@@ -615,6 +715,38 @@ function transformChapterContent(
       }
 
       parent.replaceChild(fragment, node);
+    }
+  } catch (e) {}
+
+  // 3.5.1. Wrap any remaining standalone em-dashes or horizontal bars so they also get the intermediate width
+  try {
+    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, null);
+    const remainingNodes: Text[] = [];
+    let n: Node | null;
+    while (n = walker.nextNode()) {
+      if (n.nodeValue && /[\u2014\u2015]/.test(n.nodeValue)) {
+        const parent = n.parentNode as Element | null;
+        if (parent && !parent.closest('.reader-dash, .reader-dash-glyph, .dash-fixed, .dash-word-lead')) {
+          remainingNodes.push(n as Text);
+        }
+      }
+    }
+    for (const node of remainingNodes) {
+      const parent = node.parentNode;
+      if (!parent) continue;
+      const text = node.nodeValue || '';
+      const parts = text.split(/([\u2014\u2015])/g);
+      if (parts.length <= 1) continue;
+      const frag = doc.createDocumentFragment();
+      for (const part of parts) {
+        if (part === '—' || part === '―') {
+          const isInsideItalic = Boolean(parent.closest && parent.closest('em, i'));
+          frag.appendChild(createIntermediateDash(isInsideItalic));
+        } else if (part) {
+          frag.appendChild(doc.createTextNode(part));
+        }
+      }
+      parent.replaceChild(frag, node);
     }
   } catch (e) {}
 
@@ -778,7 +910,7 @@ function transformChapterContent(
 
       // a. Check if starts with dash / hyphen
       const startsWithDash = /^[\s]*[\u002D\u2010-\u2015\u2016\u2E3A\u2E3B-]/.test(text) ||
-                             Boolean(p.querySelector('.dash-fixed, .dash-word-lead') && text.indexOf(p.querySelector('.dash-fixed, .dash-word-lead')!.textContent || '') === 0);
+                             Boolean(p.querySelector('.dash-fixed, .dash-word-lead, .reader-dash') && text.indexOf(p.querySelector('.dash-fixed, .dash-word-lead, .reader-dash')!.textContent || '') === 0);
 
       // b. Check if starts with quote
       const startsWithQuote = /^[\s]*[«»“”„‘’"'‹›]/.test(text);
@@ -1004,15 +1136,18 @@ const EBookReader: React.FC<EBookReaderProps> = ({
 
   const [processedContent, setProcessedContent] = useState<string>(() => {
     if (chapter?.content) {
-      return transformChapterContent(chapter.content, isCoverPage, isBionic, isRsvpMode);
+      return transformChapterContent(chapter.content, isCoverPage, isBionic, isRsvpMode, isStyledMode);
     }
     return "";
   });
 
-  // Clear caches when layout-affecting typography settings change
+  // Clear caches when layout-affecting typography settings or book change
   useEffect(() => {
     processedCacheRef.current.clear();
-  }, [fontSize, readerFont, isBionic]);
+    return () => {
+      processedCacheRef.current.clear();
+    };
+  }, [fontSize, readerFont, isBionic, isStyledMode, book?.id]);
 
   // When chapter changes, reset flags and initialize page index
   useEffect(() => {
@@ -1036,7 +1171,7 @@ const EBookReader: React.FC<EBookReaderProps> = ({
       return;
     }
 
-    const cacheKey = `${book?.id || ''}_${propChapterIndex}_${isCoverPage}_${isBionic}_${isRsvpMode}`;
+    const cacheKey = `${book?.id || ''}_${propChapterIndex}_${isCoverPage}_${isBionic}_${isRsvpMode}_${isStyledMode}`;
     if (processedCacheRef.current.has(cacheKey)) {
       setProcessedContent(processedCacheRef.current.get(cacheKey)!);
       setIsLoading(false);
@@ -1050,7 +1185,11 @@ const EBookReader: React.FC<EBookReaderProps> = ({
 
     const frameId = requestAnimationFrame(() => {
       try {
-        const html = transformChapterContent(chapter.content, isCoverPage, isBionic, isRsvpMode);
+        const html = transformChapterContent(chapter.content, isCoverPage, isBionic, isRsvpMode, isStyledMode);
+        if (processedCacheRef.current.size >= 6) {
+          const firstKey = processedCacheRef.current.keys().next().value;
+          if (firstKey) processedCacheRef.current.delete(firstKey);
+        }
         processedCacheRef.current.set(cacheKey, html);
         setProcessedContent(html);
       } finally {
@@ -1065,7 +1204,7 @@ const EBookReader: React.FC<EBookReaderProps> = ({
       clearTimeout(timer);
       cancelAnimationFrame(frameId);
     };
-  }, [chapter?.content, propChapterIndex, isCoverPage, isBionic, isRsvpMode, book?.id]);
+  }, [chapter?.content, propChapterIndex, isCoverPage, isBionic, isRsvpMode, isStyledMode, book?.id]);
 
   const pageIndexRef = useRef(pageIndex);
   pageIndexRef.current = pageIndex;
@@ -1207,7 +1346,7 @@ const EBookReader: React.FC<EBookReaderProps> = ({
     if (!elements.length) return;
 
     const currentWidth = containerWidthRef.current || 800;
-    const currentConfigKey = `${fontSize}_${currentWidth}_${isBionic}_${readerFont}`;
+    const currentConfigKey = `${fontSize}_${currentWidth}_${isBionic}_${readerFont}_${isStyledMode}`;
     
     const range = sharedRangeRef.current || document.createRange();
 
@@ -1235,14 +1374,19 @@ const EBookReader: React.FC<EBookReaderProps> = ({
       return maxW;
     };
 
-    // Adaptive auto-compensator: narrows glyphs and tracking progressively
-    // to pull trailing words/syllables onto underfilled lines and eliminate holes ("дыры").
+    // Adaptive auto-compensator: applies the MINIMUM necessary compression (wdth & micro-tracking)
+    // to pull trailing words/syllables onto underfilled lines, eliminating large gaps without visible distortion.
     const candidates = [
-      { ls: '-0.008em', stretch: '98%', wdth: 98 },
-      { ls: '-0.016em', stretch: '96%', wdth: 96 },
+      { ls: '-0.003em', stretch: '99%', wdth: 99 },
+      { ls: '-0.006em', stretch: '98%', wdth: 98 },
+      { ls: '-0.010em', stretch: '97%', wdth: 97 },
+      { ls: '-0.014em', stretch: '96%', wdth: 96 },
+      { ls: '-0.018em', stretch: '95%', wdth: 95 },
       { ls: '-0.024em', stretch: '94%', wdth: 94 },
-      { ls: '-0.032em', stretch: '92%', wdth: 92 },
-      { ls: '-0.040em', stretch: '90%', wdth: 90 },
+      { ls: '-0.030em', stretch: '92%', wdth: 92 },
+      { ls: '-0.038em', stretch: '90%', wdth: 90 },
+      { ls: '-0.046em', stretch: '88%', wdth: 88 },
+      { ls: '-0.055em', stretch: '85%', wdth: 85 },
     ];
 
     elements.forEach((p) => {
@@ -1261,10 +1405,10 @@ const EBookReader: React.FC<EBookReaderProps> = ({
       const initialMax = getMaxSpaceInElement(p);
       const computedFs = parseFloat(window.getComputedStyle(p).fontSize) || (fontSize * 16) || 18;
       
-      // Thresholds: normal justified space is around 0.25-0.35em. 
-      // Gaps exceeding ~0.35em produce visible "дыры", triggering auto-compensation.
-      const wordSpaceThreshold = Math.max(5.6, computedFs * 0.35);
-      const targetWordSpace = Math.max(4.6, computedFs * 0.29);
+      // Thresholds: ideal justified space width is ~0.24-0.28em.
+      // Spaces exceeding ~0.30em start creating noticeable gaps ("дыры").
+      const wordSpaceThreshold = Math.max(4.8, computedFs * 0.30);
+      const targetWordSpace = Math.max(4.0, computedFs * 0.25);
 
       if (initialMax > wordSpaceThreshold) {
         let bestCand: typeof candidates[0] | null = null;
@@ -1273,20 +1417,22 @@ const EBookReader: React.FC<EBookReaderProps> = ({
         for (const cand of candidates) {
           p.style.setProperty('letter-spacing', cand.ls, 'important');
           p.style.setProperty('font-stretch', cand.stretch, 'important');
-          p.style.setProperty('font-variation-settings', `"wdth" ${cand.wdth}`, 'important');
+          p.style.setProperty('font-variation-settings', `"wdth" ${cand.wdth}, "kern" 1, "liga" 1, "calt" 1, "locl" 1`, 'important');
 
           const curMax = getMaxSpaceInElement(p);
           if (curMax < lowestMax) {
             lowestMax = curMax;
             bestCand = cand;
+            // Stop at the earliest (minimal) compression level that resolves the large gap!
             if (curMax <= targetWordSpace) break;
           }
         }
 
-        if (bestCand && (lowestMax < initialMax - 1.5)) {
+        // Apply only if it genuinely fixed/reduced the gap by at least 0.5px
+        if (bestCand && (lowestMax < initialMax - 0.5)) {
           p.style.setProperty('letter-spacing', bestCand.ls, 'important');
           p.style.setProperty('font-stretch', bestCand.stretch, 'important');
-          p.style.setProperty('font-variation-settings', `"wdth" ${bestCand.wdth}`, 'important');
+          p.style.setProperty('font-variation-settings', `"wdth" ${bestCand.wdth}, "kern" 1, "liga" 1, "calt" 1, "locl" 1`, 'important');
         } else {
           p.style.removeProperty('letter-spacing');
           p.style.removeProperty('font-stretch');
@@ -1296,7 +1442,7 @@ const EBookReader: React.FC<EBookReaderProps> = ({
 
       p.dataset.microtypedKey = currentConfigKey;
     });
-  }, [fontSize, isBionic, readerFont]);
+  }, [fontSize, isBionic, readerFont, isStyledMode]);
 
   const optimizeTypography = React.useCallback(() => {
     if (!contentRef.current) return;
@@ -2624,6 +2770,9 @@ const EBookReader: React.FC<EBookReaderProps> = ({
       pagedContainerRef
   });
 
+  const lastRsvpScrollTimeRef = useRef<number>(0);
+  const lastRsvpIndexRef = useRef<number>(0);
+
   // Sync scroll / page with RSVP word
   useEffect(() => {
       const activeRef = isPagedMode ? pagedContainerRef : containerRef;
@@ -2631,25 +2780,79 @@ const EBookReader: React.FC<EBookReaderProps> = ({
       const currentWord = rsvpWords[rsvpIndex];
       if (!currentWord || !currentWord.node.parentElement) return;
 
+      const isManualJump = Math.abs(rsvpIndex - lastRsvpIndexRef.current) > 2;
+      lastRsvpIndexRef.current = rsvpIndex;
+
+      // Extract accurate bounding box of the word using Range
+      let wordTop = 0;
+      let wordBottom = 0;
+      let wordLeft = 0;
+      let wordRight = 0;
+      let hasWordRect = false;
+
+      try {
+          const range = document.createRange();
+          range.selectNodeContents(currentWord.node);
+          const rect = range.getBoundingClientRect();
+          if (rect.height > 0) {
+              wordTop = rect.top;
+              wordBottom = rect.bottom;
+              wordLeft = rect.left;
+              wordRight = rect.right;
+              hasWordRect = true;
+          }
+      } catch (e) {}
+
+      if (!hasWordRect && currentWord.node.parentElement) {
+          const pRect = currentWord.node.parentElement.getBoundingClientRect();
+          wordTop = pRect.top;
+          wordBottom = pRect.bottom;
+          wordLeft = pRect.left;
+          wordRight = pRect.right;
+      }
+
       if (!isPagedMode) {
-          const parent = currentWord.node.parentElement;
-          const rect = parent.getBoundingClientRect();
           const containerRect = activeRef.current.getBoundingClientRect();
-          
-          // Auto-scroll if word goes too far down or up
-          const relativeTop = rect.top - containerRect.top;
-          if (relativeTop > containerRect.height * 0.55 || relativeTop < containerRect.height * 0.45) {
-               const targetY = rect.top - containerRect.top + activeRef.current.scrollTop - (containerRect.height / 2);
-               activeRef.current.scrollTo({ top: targetY, behavior: 'smooth' });
+          const relativeTop = wordTop - containerRect.top;
+          const viewportH = containerRect.height;
+
+          // If manual jump (slider / nav buttons), smoothly center word in comfortable reading zone
+          if (isManualJump) {
+              const targetY = wordTop - containerRect.top + activeRef.current.scrollTop - (viewportH * 0.35);
+              activeRef.current.scrollTo({ top: Math.max(0, targetY), behavior: 'smooth' });
+              lastRsvpScrollTimeRef.current = Date.now();
+              return;
+          }
+
+          // Throttle smooth scrolling during RSVP playback to prevent animation stacking / bouncing
+          if (Date.now() - lastRsvpScrollTimeRef.current < 900) {
+              return;
+          }
+
+          // Wide comfortable deadband: only scroll when word approaches viewport boundaries
+          if (relativeTop > viewportH * 0.72) {
+              // Word is near bottom: gently scroll so word is placed at 35% viewport height
+              const targetY = wordTop - containerRect.top + activeRef.current.scrollTop - (viewportH * 0.35);
+              activeRef.current.scrollTo({ top: Math.max(0, targetY), behavior: 'smooth' });
+              lastRsvpScrollTimeRef.current = Date.now();
+          } else if (relativeTop < viewportH * 0.18) {
+              // Word is near top: gently scroll so word is placed at 40% viewport height
+              const targetY = wordTop - containerRect.top + activeRef.current.scrollTop - (viewportH * 0.40);
+              activeRef.current.scrollTo({ top: Math.max(0, targetY), behavior: 'smooth' });
+              lastRsvpScrollTimeRef.current = Date.now();
           }
       } else if (pagedContainerRef.current) {
-          const parent = currentWord.node.parentElement;
-          const rect = parent.getBoundingClientRect();
           const containerRect = pagedContainerRef.current.getBoundingClientRect();
-          if (rect.left >= containerRect.right - 10) {
-              setPageIndex(prev => Math.min(totalPages - 1, prev + 1));
-          } else if (rect.right <= containerRect.left + 10) {
-              setPageIndex(prev => Math.max(0, prev - 1));
+          if (wordLeft >= containerRect.right - 15) {
+              if (Date.now() - lastRsvpScrollTimeRef.current > 500) {
+                  lastRsvpScrollTimeRef.current = Date.now();
+                  setPageIndex(prev => Math.min(totalPages - 1, prev + 1));
+              }
+          } else if (wordRight <= containerRect.left + 15) {
+              if (Date.now() - lastRsvpScrollTimeRef.current > 500) {
+                  lastRsvpScrollTimeRef.current = Date.now();
+                  setPageIndex(prev => Math.max(0, prev - 1));
+              }
           }
       }
   }, [rsvpIndex, isRsvpMode, rsvpWords, isPagedMode, totalPages]);
@@ -2795,29 +2998,45 @@ const EBookReader: React.FC<EBookReaderProps> = ({
                                         const isActive = originalIndex === rsvpIndex;
                                         
                                         const word = item.word;
-                                        const match = word.match(/^([^\p{L}\p{N}]*)([\p{L}\p{N}]+(?:[’'\-][\p{L}\p{N}]+)*)([^\p{L}\p{N}]*)$/u);
-                                        let leading = "";
-                                        let left = word;
-                                        let mid = "";
-                                        let right = "";
-                                        let trailing = "";
-                                        
-                                        if (match) {
-                                            leading = match[1];
-                                            const coreWord = match[2];
-                                            trailing = match[3];
-                                            const L = coreWord.length;
-                                            let orpIndex = 0;
-                                            if (L <= 1) orpIndex = 0;
-                                            else if (L <= 5) orpIndex = 1;
-                                            else if (L <= 9) orpIndex = 2;
-                                            else if (L <= 13) orpIndex = 3;
-                                            else orpIndex = 4;
-                                            
-                                            left = coreWord.substring(0, orpIndex);
-                                            mid = coreWord.charAt(orpIndex);
-                                            right = coreWord.substring(orpIndex + 1);
+                                        let itemFootnote = item.footnote || "";
+
+                                        // Also check if word itself has trailing footnote like [1], (1), *, etc.
+                                        let cleanWordStr = word;
+                                        const inlineFnMatch = cleanWordStr.match(/^(.*?)(\[\d+\]|\(\d+\)|\*+|[¹²³⁴⁵⁶⁷⁸⁹⁰]+)$/u);
+                                        if (inlineFnMatch && inlineFnMatch[1].length > 0) {
+                                            cleanWordStr = inlineFnMatch[1];
+                                            itemFootnote = (itemFootnote ? itemFootnote + ' ' : '') + inlineFnMatch[2];
                                         }
+
+                                        const firstAlphaIdx = cleanWordStr.search(/[\p{L}\p{N}]/u);
+                                        let leading = "";
+                                        let coreWord = cleanWordStr;
+                                        let trailing = "";
+
+                                        if (firstAlphaIdx !== -1) {
+                                            let lastAlphaIdx = -1;
+                                            for (let i = cleanWordStr.length - 1; i >= firstAlphaIdx; i--) {
+                                                if (/[\p{L}\p{N}]/u.test(cleanWordStr[i])) {
+                                                    lastAlphaIdx = i;
+                                                    break;
+                                                }
+                                            }
+                                            leading = cleanWordStr.substring(0, firstAlphaIdx);
+                                            coreWord = cleanWordStr.substring(firstAlphaIdx, lastAlphaIdx + 1);
+                                            trailing = cleanWordStr.substring(lastAlphaIdx + 1);
+                                        }
+
+                                        const L = coreWord.length;
+                                        let orpIndex = 0;
+                                        if (L <= 1) orpIndex = 0;
+                                        else if (L <= 5) orpIndex = 1;
+                                        else if (L <= 9) orpIndex = 2;
+                                        else if (L <= 13) orpIndex = 3;
+                                        else orpIndex = 4;
+
+                                        const left = coreWord.substring(0, orpIndex);
+                                        const mid = coreWord.charAt(orpIndex);
+                                        const right = coreWord.substring(orpIndex + 1);
                                         
                                         let orpColorClass = 'font-normal';
                                         if (isActive) {
@@ -2828,6 +3047,31 @@ const EBookReader: React.FC<EBookReaderProps> = ({
                                             ? (theme === 'light' ? 'text-neutral-950 opacity-100 font-normal scale-100' : 'text-white opacity-100 font-normal scale-100')
                                             : (theme === 'light' ? 'text-neutral-400 opacity-25 font-normal' : 'text-neutral-500 opacity-25 font-normal');
 
+                                        const punctColorClass = isActive 
+                                            ? (theme === 'light' ? 'text-neutral-400 font-normal' : 'text-neutral-500 font-normal')
+                                            : 'opacity-40';
+
+                                        const renderPart = (text: string) => {
+                                            if (!text) return null;
+                                            if (!/[^\p{L}\p{N}]/u.test(text)) {
+                                                return <span>{text}</span>;
+                                            }
+                                            const segments = text.split(/([^\p{L}\p{N}]+)/u);
+                                            return (
+                                                <span>
+                                                    {segments.map((seg, i) => {
+                                                        if (!seg) return null;
+                                                        const isPunct = /^[^\p{L}\p{N}]+$/u.test(seg);
+                                                        return isPunct ? (
+                                                            <span key={i} className={punctColorClass}>{seg}</span>
+                                                        ) : (
+                                                            <span key={i}>{seg}</span>
+                                                        );
+                                                    })}
+                                                </span>
+                                            );
+                                        };
+
                                         return (
                                             <React.Fragment key={originalIndex}>
                                                 {item.isParagraphStart && originalIndex > rsvpIndex && (
@@ -2837,7 +3081,16 @@ const EBookReader: React.FC<EBookReaderProps> = ({
                                                     data-rsvp-word-index={originalIndex}
                                                     className={`inline-block mx-1.5 whitespace-nowrap transition-none ${textStyleClass} ${rsvpFontClass}`}
                                                 >
-                                                    {leading && <span className="opacity-40">{leading}</span>}<span>{left}</span><span className={`rsvp-orp ${orpColorClass}`}>{mid}</span><span>{right}</span>{trailing && <span className="opacity-40">{trailing}</span>}
+                                                    {leading && <span className={punctColorClass}>{leading}</span>}
+                                                    {renderPart(left)}
+                                                    <span className={`rsvp-orp ${orpColorClass}`}>{mid}</span>
+                                                    {renderPart(right)}
+                                                    {trailing && <span className={punctColorClass}>{trailing}</span>}
+                                                    {itemFootnote && (
+                                                        <sup className={`text-[0.68em] align-super ml-0.5 font-normal ${punctColorClass}`}>
+                                                            {itemFootnote}
+                                                        </sup>
+                                                    )}
                                                 </span>
                                             </React.Fragment>
                                         );
@@ -2990,6 +3243,9 @@ const EBookReader: React.FC<EBookReaderProps> = ({
              text-justify: auto !important;
              word-spacing: -0.028em !important;
              letter-spacing: -0.005em;
+             font-kerning: normal !important;
+             font-feature-settings: "kern" 1, "liga" 1, "calt" 1, "locl" 1 !important;
+             text-rendering: optimizeLegibility !important;
              hyphens: auto !important;
              -webkit-hyphens: auto !important;
              -ms-hyphens: auto !important;
@@ -3002,12 +3258,17 @@ const EBookReader: React.FC<EBookReaderProps> = ({
           .reader-content p {
              word-spacing: -0.028em !important;
              letter-spacing: -0.005em;
+             font-kerning: normal !important;
+             font-feature-settings: "kern" 1, "liga" 1, "calt" 1, "locl" 1 !important;
+             font-variant-numeric: normal !important;
           }
 
           .punct-tight {
              display: inline !important;
              white-space: nowrap !important;
-             font-feature-settings: normal !important;
+             font-feature-settings: "kern" 1, normal !important;
+             font-kerning: normal !important;
+             text-rendering: optimizeLegibility !important;
              font-variant-numeric: normal !important;
           }
 
@@ -3020,18 +3281,44 @@ const EBookReader: React.FC<EBookReaderProps> = ({
              display: inline !important;
              white-space: nowrap !important;
              letter-spacing: normal !important;
+             font-kerning: normal !important;
              margin-right: 0.03em;
           }
 
           .punct-tight-combo .punct-mark {
-             letter-spacing: -0.04em !important;
              display: inline !important;
           }
 
-          .punct-tight-combo .punct-dots {
-             margin-left: -0.10em !important;
+          .punct-combo-exclamation .punct-mark {
+             letter-spacing: normal !important;
+          }
+
+          .punct-combo-exclamation .punct-dots {
+             margin-left: -0.05em !important;
              letter-spacing: -0.09em !important;
              display: inline !important;
+          }
+
+          .punct-combo-question .punct-mark {
+             letter-spacing: -0.05em !important;
+          }
+
+          .punct-combo-question .punct-dots {
+             margin-left: -0.22em !important;
+             letter-spacing: -0.09em !important;
+             display: inline !important;
+          }
+
+          .reader-dash {
+             display: inline !important;
+          }
+
+          .reader-dash-glyph {
+             display: inline !important;
+             font-size: 0.82em !important;
+             line-height: inherit !important;
+             vertical-align: 0.04em !important;
+             letter-spacing: normal !important;
           }
 
           .dash-fixed {
@@ -3104,12 +3391,29 @@ const EBookReader: React.FC<EBookReaderProps> = ({
               clear: both;
           }
 
-          /* PARAGRAPH INDENTATION - ALWAYS ON (Default Behavior) */
+          /* PARAGRAPH INDENTATION - ALWAYS ON (Default Behavior for body text) */
           .reader-content p {
-             text-indent: 1.5em !important;
+             text-indent: 1.5em;
           }
 
-          .reader-content p.no-indent {
+          .reader-content p.no-indent,
+          .reader-content table,
+          .reader-content table *,
+          .reader-content table p,
+          .reader-content table td p,
+          .reader-content table th p,
+          .reader-content table tr p,
+          .reader-content table div,
+          .reader-content table td,
+          .reader-content table th,
+          .reader-content table span,
+          .reader-content td,
+          .reader-content th,
+          .reader-content td p,
+          .reader-content th p,
+          .reader-content ul li,
+          .reader-content ul li p,
+          .reader-content ul p {
              text-indent: 0 !important;
           }
 
@@ -3361,6 +3665,193 @@ const EBookReader: React.FC<EBookReaderProps> = ({
              margin-top: 0.5em !important;
              margin-bottom: 0.5em !important;
              opacity: 0.85 !important;
+          }
+
+          /* Tables Typography & Layout - smaller font size than main text, strictly no first-line indent */
+          .reader-content table,
+          .reader-content table *,
+          .reader-content table th,
+          .reader-content table td,
+          .reader-content table tr,
+          .reader-content table thead,
+          .reader-content table tbody,
+          .reader-content table tfoot,
+          .reader-content table p,
+          .reader-content table div,
+          .reader-content table span,
+          .reader-content table em,
+          .reader-content table strong,
+          .reader-content table b,
+          .reader-content table i,
+          .reader-content table a,
+          .reader-content table li,
+          .reader-content table blockquote {
+             text-indent: 0 !important;
+             margin-left: 0;
+          }
+
+          .reader-content table,
+          .reader-content table th,
+          .reader-content table td,
+          .reader-content table p,
+          .reader-content table span,
+          .reader-content table div,
+          .reader-content table em,
+          .reader-content table strong,
+          .reader-content table b,
+          .reader-content table i,
+          .reader-content table a,
+          .reader-content table li,
+          .reader-content table blockquote {
+             font-size: 0.85em !important;
+             line-height: 1.35 !important;
+          }
+
+          /* Scrollable Table Wrapper */
+          .reader-content .table-scroll-wrapper {
+             display: block !important;
+             width: 100% !important;
+             max-width: 100% !important;
+             overflow-x: auto !important;
+             overflow-y: hidden !important;
+             -webkit-overflow-scrolling: touch !important;
+             margin: 1.2em 0 !important;
+             text-indent: 0 !important;
+             padding-bottom: 4px !important;
+          }
+
+          .reader-content .table-scroll-wrapper::-webkit-scrollbar {
+             height: 6px !important;
+          }
+
+          .reader-content .table-scroll-wrapper::-webkit-scrollbar-track {
+             background: rgba(128, 128, 128, 0.08) !important;
+             border-radius: 4px !important;
+          }
+
+          .reader-content .table-scroll-wrapper::-webkit-scrollbar-thumb {
+             background: rgba(128, 128, 128, 0.3) !important;
+             border-radius: 4px !important;
+          }
+
+          .reader-content .table-scroll-wrapper::-webkit-scrollbar-thumb:hover {
+             background: rgba(128, 128, 128, 0.5) !important;
+          }
+
+          .reader-content table {
+             width: 100% !important;
+             min-width: 100% !important;
+             max-width: none !important;
+             border-collapse: collapse !important;
+             margin: 0 auto !important;
+             display: table !important;
+             box-sizing: border-box !important;
+             word-break: normal !important;
+             overflow-wrap: break-word !important;
+             text-indent: 0 !important;
+          }
+
+          .reader-content table th,
+          .reader-content table td {
+             padding: 0.35em 0.55em !important;
+             border: 1px solid rgba(128, 128, 128, 0.28) !important;
+             vertical-align: top !important;
+             text-align: left !important;
+             text-align-last: left !important;
+             -webkit-text-align-last: left !important;
+             text-justify: auto !important;
+             -webkit-text-justify: auto !important;
+             word-spacing: normal !important;
+             letter-spacing: normal !important;
+             text-indent: 0 !important;
+             box-sizing: border-box !important;
+             ${appStyle === 'Bimbo' ? `border-color: ${theme === 'light' ? '#FBCFE8' : '#be123c'} !important;` : ''}
+             ${appStyle === 'Final' || appStyle === 'Final Fantasy' ? `border-color: ${theme === 'light' ? 'rgba(217, 119, 6, 0.35)' : 'rgba(223, 200, 148, 0.35)'} !important;` : ''}
+             ${appStyle === 'Dragon' ? `border-color: ${theme === 'light' ? 'rgba(153, 27, 27, 0.35)' : 'rgba(245, 158, 11, 0.35)'} !important;` : ''}
+          }
+
+          .reader-content table th {
+             font-weight: bold !important;
+             text-align: left !important;
+             text-align-last: left !important;
+             -webkit-text-align-last: left !important;
+             background-color: rgba(128, 128, 128, 0.08) !important;
+             ${appStyle === 'Bimbo' ? `background-color: ${theme === 'light' ? 'rgba(251, 207, 232, 0.3)' : 'rgba(190, 18, 60, 0.2)'} !important;` : ''}
+             ${appStyle === 'Final' || appStyle === 'Final Fantasy' ? `background-color: ${theme === 'light' ? 'rgba(217, 119, 6, 0.1)' : 'rgba(223, 200, 148, 0.12)'} !important;` : ''}
+             ${appStyle === 'Dragon' ? `background-color: ${theme === 'light' ? 'rgba(153, 27, 27, 0.1)' : 'rgba(245, 158, 11, 0.12)'} !important;` : ''}
+          }
+
+          .reader-content table td p,
+          .reader-content table th p,
+          .reader-content table p,
+          .reader-content table div {
+             text-indent: 0 !important;
+             margin: 0.15em 0 !important;
+             padding: 0 !important;
+             text-align: left !important;
+             text-align-last: left !important;
+             -webkit-text-align-last: left !important;
+             text-justify: auto !important;
+             -webkit-text-justify: auto !important;
+             word-spacing: normal !important;
+             letter-spacing: normal !important;
+          }
+
+          /* Lists (Ordered & Unordered) Typography & Layout - slightly smaller font size than main body text */
+          .reader-content ul,
+          .reader-content ol {
+             margin: 0.9em 0 0.9em 1.5em !important;
+             padding-left: 0.5em !important;
+          }
+
+          .reader-content ul {
+             list-style-type: disc !important;
+             text-indent: 0 !important;
+          }
+
+          .reader-content ol {
+             list-style-type: decimal !important;
+          }
+
+          .reader-content ul li,
+          .reader-content ol li,
+          .reader-content li,
+          .reader-content li p,
+          .reader-content li div,
+          .reader-content li span,
+          .reader-content li em,
+          .reader-content li strong,
+          .reader-content li b,
+          .reader-content li i,
+          .reader-content li a {
+             font-size: 0.85em !important;
+             line-height: 1.38 !important;
+          }
+
+          /* Bulleted lists: NO first-line indent (красная строка убрана) */
+          .reader-content ul,
+          .reader-content ul li,
+          .reader-content ul li p,
+          .reader-content ul li div,
+          .reader-content ul li span,
+          .reader-content ul p {
+             text-indent: 0 !important;
+          }
+
+          /* Numbered lists: Keep first-line indent (красная строка оставлена) */
+          .reader-content ol li,
+          .reader-content ol li p,
+          .reader-content ol li div,
+          .reader-content ol p {
+             text-indent: 1.5em;
+          }
+
+          .reader-content li {
+             margin-bottom: 0.35em !important;
+          }
+
+          .reader-content li p {
+             margin: 0.15em 0 !important;
           }
           
           /* Cover Page Specifics - Centered Title & Author on Title/Cover Page */

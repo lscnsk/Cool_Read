@@ -716,7 +716,7 @@ function App() {
           {isCatalogOpen ? (
             <CatalogView
               books={filteredCatalogBooks}
-              libraryBooks={books}
+              libraryBooks={activeBooks}
               currentFilter={catalogFilter}
               onResetFilter={() => setCatalogFilter({ type: 'all' })}
               onDownloadBook={handleDownloadCatalogBook}
@@ -739,7 +739,7 @@ function App() {
           ) : !currentBook ? (
              <EmptyState 
                 isLoading={isLoading} 
-                booksCount={books.length} 
+                booksCount={activeBooks.length} 
                 mode={mode} 
                 isNative={isNative} 
                 appStyle={appStyle} 

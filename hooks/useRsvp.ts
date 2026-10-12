@@ -4,6 +4,7 @@ export interface RsvpWord {
     word: string;
     node: Node;
     isParagraphStart?: boolean;
+    footnote?: string;
 }
 
 interface UseRsvpProps {
@@ -46,9 +47,46 @@ export function useRsvp({
          }
      });
 
+     const isAlphaNumeric = (str: string) => /[\p{L}\p{N}]/u.test(str);
+     const isOpeningPunct = (str: string) => /^[«“"‘'(\[{]/u.test(str);
+     const isSentenceEndPunct = (str: string) => /[.?!…][.?!…»”"')\]]*$/u.test(str);
+
+     const isFootnoteNode = (node: Node): boolean => {
+         const el = node.parentElement;
+         if (!el) return false;
+         if (el.closest('sup, sub')) return true;
+         const a = el.closest('a');
+         if (a) {
+             const href = a.getAttribute('href') || '';
+             const id = a.getAttribute('id') || '';
+             const epubType = a.getAttribute('epub:type') || '';
+             const role = a.getAttribute('role') || '';
+             if (epubType === 'noteref' || role === 'doc-noteref' || a.classList.contains('note-link') || a.classList.contains('noteref') || a.classList.contains('footnote')) {
+                 return true;
+             }
+             if (/#(note|ref|fn|footnote|cite)/i.test(href) || /^(ref|note|fn)/i.test(id)) {
+                 return true;
+             }
+         }
+         return false;
+     };
+
+     const isFootnoteToken = (str: string, node: Node): boolean => {
+         if (isFootnoteNode(node)) return true;
+         return /^\[\d+\]$/u.test(str) || 
+                /^\(\d+\)$/u.test(str) || 
+                /^\*+$/u.test(str) || 
+                /^[¹²³⁴⁵⁶⁷⁸⁹⁰]+$/u.test(str) || 
+                /^\[[a-zа-яё]\]$/iu.test(str);
+     };
+
      const words: RsvpWord[] = [];
      let n;
      let lastBlockParent: Element | null = null;
+     let pendingLeading = "";
+     let pendingLeadingNode: Node | null = null;
+     let pendingParaStart = false;
+     let pendingFootnote = "";
 
      while (n = walker.nextNode()) {
          const val = n.nodeValue;
@@ -56,24 +94,103 @@ export function useRsvp({
          
          const parent = n.parentElement;
          const blockParent = parent ? (parent.closest('p, div, h1, h2, h3, h4, h5, h6, li') || parent) : null;
-         
-         const split = val.split(/\s+/);
-         let isFirstWordInNode = true;
-         for (const w of split) {
-             const cleanWord = w.trim().replace(/\xad/g, '');
-             if (cleanWord.length > 0) {
-                 const isParaStart = words.length > 0 && isFirstWordInNode && blockParent !== lastBlockParent;
-                 words.push({ 
-                     word: cleanWord, 
-                     node: n, 
-                     isParagraphStart: isParaStart 
-                 });
-                 isFirstWordInNode = false;
-                 if (blockParent) {
-                     lastBlockParent = blockParent;
-                 }
+         const isNewBlock = blockParent !== lastBlockParent;
+
+         if (isNewBlock) {
+             if (pendingLeading && words.length > 0) {
+                 words[words.length - 1].word += (words[words.length - 1].word.endsWith(' ') ? '' : ' ') + pendingLeading;
+                 pendingLeading = "";
+                 pendingLeadingNode = null;
+             }
+             if (pendingFootnote && words.length > 0) {
+                 words[words.length - 1].footnote = (words[words.length - 1].footnote ? words[words.length - 1].footnote + ' ' : '') + pendingFootnote;
+                 pendingFootnote = "";
+             }
+             pendingParaStart = true;
+             if (blockParent) {
+                 lastBlockParent = blockParent;
              }
          }
+
+         const split = val.split(/\s+/);
+         for (const w of split) {
+             const cleanWord = w.trim().replace(/\xad/g, '');
+             if (cleanWord.length === 0) continue;
+
+             // Check if this token is a footnote reference marker
+             if (isFootnoteToken(cleanWord, n)) {
+                 if (words.length > 0) {
+                     words[words.length - 1].footnote = (words[words.length - 1].footnote ? words[words.length - 1].footnote + ' ' : '') + cleanWord;
+                 } else {
+                     pendingFootnote = (pendingFootnote ? pendingFootnote + ' ' : '') + cleanWord;
+                 }
+                 continue;
+             }
+
+             // Check for inline footnote marker attached at end of word (e.g. "слово[1]" or "слово*")
+             const inlineFnMatch = cleanWord.match(/^(.*?)(\[\d+\]|\(\d+\)|\*+|[¹²³⁴⁵⁶⁷⁸⁹⁰]+)$/u);
+             let wordPart = cleanWord;
+             let inlineFn = "";
+             if (inlineFnMatch && inlineFnMatch[1].length > 0) {
+                 wordPart = inlineFnMatch[1];
+                 inlineFn = inlineFnMatch[2];
+             }
+
+             if (!isAlphaNumeric(wordPart)) {
+                 // Pure punctuation token (e.g. "—", "!", "..", "...", "»", "(", etc.)
+                 if (isNewBlock || words.length === 0 || isOpeningPunct(wordPart)) {
+                     pendingLeading += (pendingLeading ? ' ' : '') + wordPart;
+                     if (!pendingLeadingNode) pendingLeadingNode = n;
+                 } else {
+                     const lastWord = words[words.length - 1]?.word || '';
+                     if (isSentenceEndPunct(lastWord) && /^[\x2d\u2013\u2014]+$/u.test(wordPart)) {
+                         pendingLeading += (pendingLeading ? ' ' : '') + wordPart;
+                         if (!pendingLeadingNode) pendingLeadingNode = n;
+                     } else {
+                         const needsSpace = /^[\x2d\u2013\u2014]+$/u.test(wordPart) && !words[words.length - 1].word.endsWith(' ');
+                         words[words.length - 1].word += (needsSpace ? ' ' : '') + wordPart;
+                     }
+                 }
+                 if (inlineFn) {
+                     if (words.length > 0) {
+                         words[words.length - 1].footnote = (words[words.length - 1].footnote ? words[words.length - 1].footnote + ' ' : '') + inlineFn;
+                     } else {
+                         pendingFootnote = (pendingFootnote ? pendingFootnote + ' ' : '') + inlineFn;
+                     }
+                 }
+             } else {
+                 // Token contains letters or digits - REAL WORD
+                 let finalWord = wordPart;
+                 const wordNode = pendingLeadingNode || n;
+                 if (pendingLeading) {
+                     const sep = /^[\x2d\u2013\u2014]+$/u.test(pendingLeading.trim()) ? ' ' : '';
+                     finalWord = pendingLeading + sep + wordPart;
+                     pendingLeading = "";
+                     pendingLeadingNode = null;
+                 }
+
+                 const combinedFootnote = (pendingFootnote ? pendingFootnote + (inlineFn ? ' ' + inlineFn : '') : inlineFn) || undefined;
+                 pendingFootnote = "";
+
+                 const isParaStart = words.length > 0 && pendingParaStart;
+                 words.push({
+                     word: finalWord,
+                     node: wordNode,
+                     isParagraphStart: isParaStart,
+                     footnote: combinedFootnote
+                 });
+                 pendingParaStart = false;
+             }
+         }
+     }
+
+     if (pendingLeading && words.length > 0) {
+         words[words.length - 1].word += (words[words.length - 1].word.endsWith(' ') ? '' : ' ') + pendingLeading;
+         pendingLeading = "";
+     }
+     if (pendingFootnote && words.length > 0) {
+         words[words.length - 1].footnote = (words[words.length - 1].footnote ? words[words.length - 1].footnote + ' ' : '') + pendingFootnote;
+         pendingFootnote = "";
      }
 
      setRsvpWords(words);
@@ -169,12 +286,12 @@ export function useRsvp({
      
      let pauseMultiplier = 1.0;
      // 2. Pause after punctuation (comma, semicolon, colon, dash)
-     const hasMidPunctuation = /[,\x2d\u2013\u2014:;]$/.test(word);
+     const hasMidPunctuation = /[,\x2d\u2013\u2014:;][»”"')\]\s]*$/u.test(word);
      if (hasMidPunctuation) {
          pauseMultiplier = 1.6;
      }
      // 3. Pause at the end of a sentence (period, question, exclamation, ellipsis)
-     const hasSentenceEnd = /[.?!]$/.test(word) || word.includes('...');
+     const hasSentenceEnd = /[.?!…][.?!…»”"')\]\s]*$/u.test(word) || word.includes('..') || word.includes('…');
      if (hasSentenceEnd) {
          pauseMultiplier = 2.4;
      }

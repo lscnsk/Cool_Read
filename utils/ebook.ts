@@ -346,7 +346,8 @@ export const parseFb2 = async (file: Blob, bookId: string): Promise<Partial<Book
                   const tag = child.tagName.toLowerCase();
                   
                   if (tag === 'section') {
-                      if (getSectionLevel(child) < 2) {
+                      // Only skip if child was separately indexed as a standalone chapter in sections
+                      if (sections.includes(child)) {
                           return;
                       }
                       const subRes = serializeNode(child, curLevel + 1);
@@ -667,3 +668,135 @@ export const parseEpub = async (file: Blob, bookId: string): Promise<Partial<Boo
 
     return { title, author, series: series || undefined, coverUrl, chapters, type: 'ebook' };
 }
+
+/**
+ * Fast, lightweight metadata extraction for FB2 without parsing all chapters and binaries into memory
+ */
+export const extractFb2Metadata = async (file: Blob): Promise<{ title: string; author: string; series?: string; coverUrl?: string }> => {
+    try {
+        const text = await file.text();
+        const descMatch = text.match(/<description>[\s\S]*?<\/description>/i);
+        const descText = descMatch ? descMatch[0] : text.slice(0, 50000);
+        
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(descText, "text/xml");
+        
+        const title = doc.querySelector('title-info book-title')?.textContent?.trim() || "";
+        let author = "";
+        const authorNode = doc.querySelector('title-info author');
+        if (authorNode) {
+            const first = authorNode.querySelector('first-name')?.textContent?.trim() || "";
+            const last = authorNode.querySelector('last-name')?.textContent?.trim() || "";
+            const middle = authorNode.querySelector('middle-name')?.textContent?.trim() || "";
+            author = [first, middle, last].filter(Boolean).join(" ");
+        }
+        
+        let series = "";
+        const sequenceNode = doc.querySelector('title-info sequence') || doc.querySelector('sequence');
+        if (sequenceNode) {
+            series = sequenceNode.getAttribute('name')?.trim() || "";
+        }
+        
+        // Find cover image ID
+        let coverHref: string | null = null;
+        const coverImageNode = doc.querySelector('title-info coverpage image') || doc.querySelector('coverpage image');
+        if (coverImageNode) {
+            for (let i = 0; i < coverImageNode.attributes.length; i++) {
+                const attr = coverImageNode.attributes[i];
+                if (attr.name.toLowerCase().includes('href')) {
+                    coverHref = attr.value;
+                    break;
+                }
+            }
+        }
+        if (!coverHref) {
+            const match = descText.match(/<coverpage>[\s\S]*?<image[^>]+(?:href|l:href)=["']#?([^"']+)["']/i);
+            if (match) coverHref = match[1];
+        }
+
+        let coverUrl: string | undefined = undefined;
+        if (coverHref) {
+            const cleanId = coverHref.replace(/^#/, '').trim();
+            const escapedId = cleanId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const binRegex = new RegExp(`<binary[^>]+id=["']${escapedId}["'][^>]*content-type=["']([^"']+)["'][^>]*>([\\s\\S]*?)<\\/binary>`, 'i');
+            const binMatch = text.match(binRegex) || text.match(new RegExp(`<binary[^>]+id=["']${escapedId}["'][^>]*>([\\s\\S]*?)<\\/binary>`, 'i'));
+            if (binMatch) {
+                const contentType = binMatch[1] && binMatch[1].includes('/') ? binMatch[1] : 'image/jpeg';
+                const b64 = (binMatch[2] || binMatch[1]).trim();
+                coverUrl = `data:${contentType};base64,${b64}`;
+            }
+        }
+        
+        if (!coverUrl) {
+            const firstBin = text.match(/<binary[^>]+id=["']([^"']+)["'][^>]*content-type=["']([^"']+)["'][^>]*>([\s\S]*?)<\/binary>/i);
+            if (firstBin && (firstBin[1].toLowerCase().includes('cover') || firstBin[1] === 'image1')) {
+                coverUrl = `data:${firstBin[2]};base64,${firstBin[3].trim()}`;
+            }
+        }
+
+        return { title, author, series: series || undefined, coverUrl };
+    } catch (e) {
+        console.warn("Fast FB2 metadata parse failed", e);
+        return { title: "", author: "" };
+    }
+};
+
+/**
+ * Fast, lightweight metadata extraction for EPUB without unzipping all chapters
+ */
+export const extractEpubMetadata = async (file: Blob): Promise<{ title: string; author: string; series?: string; coverUrl?: string }> => {
+    try {
+        const zip = await JSZip.loadAsync(file);
+        const container = await zip.file("META-INF/container.xml")?.async("string");
+        if (!container) return { title: "", author: "" };
+        const parser = new DOMParser();
+        const containerDoc = parser.parseFromString(container, "text/xml");
+        const opfPath = containerDoc.querySelector("rootfile")?.getAttribute("full-path");
+        if (!opfPath) return { title: "", author: "" };
+        const opfContent = await zip.file(opfPath)?.async("string");
+        if (!opfContent) return { title: "", author: "" };
+        const opfDoc = parser.parseFromString(opfContent, "text/xml");
+        const title = opfDoc.querySelector("metadata title")?.textContent?.trim() || "";
+        const author = opfDoc.querySelector("metadata creator")?.textContent?.trim() || "";
+        let series = "";
+        const seriesMeta = opfDoc.querySelector('meta[property="belongs-to-collection"]') || opfDoc.querySelector('meta[name="calibre:series"]');
+        if (seriesMeta) {
+            series = seriesMeta.textContent?.trim() || seriesMeta.getAttribute('content')?.trim() || "";
+        }
+
+        const manifestItems = Array.from(opfDoc.querySelectorAll("manifest item"));
+        let coverHref: string | undefined;
+        manifestItems.forEach(item => {
+            const id = item.getAttribute("id") || "";
+            const href = item.getAttribute("href") || "";
+            const properties = item.getAttribute("properties") || "";
+            if (properties.includes("cover-image") || id.toLowerCase().includes("cover")) coverHref = href;
+        });
+        if (!coverHref) {
+            const metaCover = opfDoc.querySelector('metadata meta[name="cover"]');
+            if (metaCover) {
+                const coverId = metaCover.getAttribute("content");
+                const item = manifestItems.find(i => i.getAttribute("id") === coverId);
+                if (item) coverHref = item.getAttribute("href") || undefined;
+            }
+        }
+
+        let coverUrl: string | undefined;
+        if (coverHref) {
+            const fullPath = resolvePath(opfPath, coverHref);
+            const imgFile = getFileFromZip(zip, fullPath);
+            if (imgFile) {
+                try {
+                    const base64 = await imgFile.async("base64");
+                    const mime = getMimeType(fullPath);
+                    coverUrl = `data:${mime};base64,${base64}`;
+                } catch (e) {}
+            }
+        }
+
+        return { title, author, series: series || undefined, coverUrl };
+    } catch (e) {
+        console.warn("Fast EPUB metadata parse failed", e);
+        return { title: "", author: "" };
+    }
+};

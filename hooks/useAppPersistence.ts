@@ -33,7 +33,7 @@ interface UseAppPersistenceProps {
     bookProgressMap: Record<string, PersistedState>;
     setBookProgressMap: React.Dispatch<React.SetStateAction<Record<string, PersistedState>>>;
     restoreAudioState: (time: number, rate: number, playAfterRestore?: boolean) => void;
-    saveMetadata: (id: string, title: string, author: string, coverUrl?: string, format?: string) => void;
+    saveMetadata: (id: string, title: string, author: string, coverUrl?: string, format?: string, series?: string) => void;
     setIsLoading: React.Dispatch<React.SetStateAction<boolean>>;
     setIsImmersive: React.Dispatch<React.SetStateAction<boolean>>;
     closeAllSidebars: () => void;
@@ -127,8 +127,19 @@ export function useAppPersistence({
   // --- Persistence Logic ---
   const saveState = useCallback(async (force = false): Promise<PersistedState | null> => {
     const book = currentBookRef.current;
-    if (!book) return null;
+    if (!book || !book.id) return null;
     if (isRestoringRef.current && !force) return null;
+
+    // Check if book was deleted
+    try {
+      if (typeof window !== 'undefined') {
+        const deletedStr = localStorage.getItem('cool_read_deleted');
+        if (deletedStr) {
+          const deletedIds: string[] = JSON.parse(deletedStr);
+          if (deletedIds.includes(book.id)) return null;
+        }
+      }
+    } catch (e) {}
 
     let state: PersistedState;
     const activeMode = modeRef.current;
@@ -491,7 +502,16 @@ export function useAppPersistence({
 
                 const finalTitle = (userTitle && userTitle.trim()) ? userTitle : (parsedBook.title || book.id);
                 const finalAuthor = (userAuthor !== undefined && userAuthor !== '') ? userAuthor : (parsedBook.author || '');
-                const finalSeries = (userSeries !== undefined && userSeries !== '') ? userSeries : (parsedBook.series || undefined);
+                
+                // If user specified or cleared series on the book object, preserve user's choice
+                let finalSeries: string | undefined;
+                if (userSeries !== undefined) {
+                    finalSeries = userSeries.trim() || undefined;
+                } else if (book._sessionActive || book.title) {
+                    finalSeries = undefined;
+                } else {
+                    finalSeries = parsedBook.series || undefined;
+                }
 
                 await saveMetadata(
                     book.id, 

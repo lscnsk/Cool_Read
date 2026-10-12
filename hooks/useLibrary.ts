@@ -9,7 +9,7 @@ import { Book, Chapter, AppMode, PersistedState } from '../types';
 import { getAllPersistentBooks, saveBookToDB, deleteBookFromDB } from '../utils/db';
 import { parseM4AChapters } from '../utils/mp4chapters';
 import { parseComic, extractComicCover } from '../utils/archive';
-import { parseFb2, parseEpub } from '../utils/ebook';
+import { parseFb2, parseEpub, extractFb2Metadata, extractEpubMetadata } from '../utils/ebook';
 
 interface UseLibraryProps {
     isNative: boolean;
@@ -46,7 +46,7 @@ const extractEBookMetadata = async (file: File): Promise<{ title: string; author
     let series = "";
     let coverUrl: string | undefined = undefined;
 
-    const nameMatch = fileName.match(/^(.*?)\s*[-—]\s*(.*)$/);
+    const nameMatch = fileName.match(/^(.*?)\s*[-—–]\s*(.*)$/);
     if (nameMatch) {
         author = nameMatch[1].trim();
         title = nameMatch[2].trim();
@@ -55,7 +55,7 @@ const extractEBookMetadata = async (file: File): Promise<{ title: string; author
     const lowerName = file.name.toLowerCase();
     if (lowerName.endsWith('.fb2') || lowerName.endsWith('.bin')) {
         try {
-            const parsed = await parseFb2(file, "meta_" + Date.now());
+            const parsed = await extractFb2Metadata(file);
             if (parsed.title) title = parsed.title;
             if (parsed.author) author = parsed.author;
             if (parsed.series) series = parsed.series;
@@ -65,7 +65,7 @@ const extractEBookMetadata = async (file: File): Promise<{ title: string; author
         }
     } else if (lowerName.endsWith('.epub')) {
         try {
-            const parsed = await parseEpub(file, "meta_" + Date.now());
+            const parsed = await extractEpubMetadata(file);
             if (parsed.title) title = parsed.title;
             if (parsed.author) author = parsed.author;
             if (parsed.series) series = parsed.series;
@@ -171,7 +171,7 @@ export function useLibrary({
           const ebookFiles = fileArray.filter(f => !f.name.toLowerCase().match(/\.(mp3|m4b|m4a|mp4)$/));
 
           if (audioFiles.length > 0) {
-              await handleExternalFolderPicked(audioFiles);
+              await handleExternalFolderPicked(fileArray);
               return;
           }
 
@@ -296,7 +296,7 @@ export function useLibrary({
               let folderTitle = parts.length > 1 ? parts[parts.length - 2] : comicArchiveFiles[0].name.replace(/\.[^/.]+$/, "");
               let folderAuthor = '';
 
-              const nameMatch = folderTitle.match(/^(.*?)\s*[-—]\s*(.*)$/);
+              const nameMatch = folderTitle.match(/^(.*?)\s*[-—–]\s*(.*)$/);
               if (nameMatch) {
                   folderAuthor = nameMatch[1].trim();
                   folderTitle = nameMatch[2].trim();
@@ -325,7 +325,7 @@ export function useLibrary({
               let folderTitle = parts.length > 1 ? parts[parts.length - 2] : "Manga / Comic";
               let folderAuthor = '';
 
-              const nameMatch = folderTitle.match(/^(.*?)\s*[-—]\s*(.*)$/);
+              const nameMatch = folderTitle.match(/^(.*?)\s*[-—–]\s*(.*)$/);
               if (nameMatch) {
                   folderAuthor = nameMatch[1].trim();
                   folderTitle = nameMatch[2].trim();
@@ -366,32 +366,132 @@ export function useLibrary({
           return;
       }
       
-      // Group files by their parent folder
-      const foldersMap: Record<string, { audio: File[], images: File[] }> = {};
-      
-      const getFolderName = (file: File) => {
-          const relPath = (file as any).webkitRelativePath || '';
-          const parts = relPath.split('/');
-          return parts.length > 1 ? parts[parts.length - 2] : 'Audio Book';
+      // Deduce title and author from filenames when tags are missing or generic
+      const deduceBookInfoFromFiles = (files: File[], fallbackFolderName: string): { title: string; author: string } => {
+          let deducedTitle = fallbackFolderName && fallbackFolderName !== 'Audio Book' ? fallbackFolderName : '';
+          let deducedAuthor = '';
+
+          const cleanNames = files.map(f => f.name.replace(/\.[a-zA-Z0-9]+$/, '').trim());
+          if (cleanNames.length === 0) {
+              return { title: deducedTitle || 'Audio Book', author: deducedAuthor };
+          }
+
+          // 1. Longest Common Prefix across all audio filenames
+          if (cleanNames.length > 1) {
+              let prefix = cleanNames[0];
+              for (let i = 1; i < cleanNames.length; i++) {
+                  while (!cleanNames[i].startsWith(prefix) && prefix.length > 0) {
+                      prefix = prefix.substring(0, prefix.length - 1);
+                  }
+              }
+              let cleanPrefix = prefix.replace(/[\s._-]+$/, '');
+              cleanPrefix = cleanPrefix.replace(/[-—–\s._]*(?:глава|часть|track|cd|диск|том|\d+)*\s*$/i, '').trim();
+
+              if (cleanPrefix.length >= 3) {
+                  const strippedPrefix = cleanPrefix.replace(/^(\d{1,3}[\s._-]+)+/i, '').trim();
+                  const parts = strippedPrefix.split(/\s*[-—–]\s*/);
+                  if (parts.length >= 2) {
+                      const candidateAuthor = parts[0].trim();
+                      const candidateTitle = parts.slice(1).join(' - ').trim();
+                      if (!/^\d+$/.test(candidateAuthor)) {
+                          deducedAuthor = candidateAuthor;
+                          deducedTitle = candidateTitle;
+                      }
+                  } else if (strippedPrefix.length >= 3) {
+                      deducedTitle = strippedPrefix;
+                  }
+              }
+          }
+
+          // 2. Individual filename inspection if not found from prefix
+          if (!deducedTitle || !deducedAuthor) {
+              for (const name of cleanNames) {
+                  const stripped = name.replace(/^(\d{1,3}[\s._-]+)+/i, '').trim();
+                  const parts = stripped.split(/\s*[-—–]\s*/);
+
+                  if (parts.length >= 2) {
+                      const candidateAuthor = parts[0].trim();
+                      const candidateTitle = parts[1].trim();
+                      const isTrackOnly = /^\d+$/.test(candidateAuthor) || /^track\s*\d+$/i.test(candidateAuthor);
+
+                      if (!isTrackOnly && candidateAuthor.length > 1) {
+                          if (!deducedAuthor) deducedAuthor = candidateAuthor;
+                          if (!deducedTitle) {
+                              const isChapterOnly = /^(?:глава|часть|track|\d+)\s*\d*$/i.test(candidateTitle);
+                              if (!isChapterOnly) {
+                                  deducedTitle = candidateTitle;
+                              }
+                          }
+                      }
+                  }
+                  if (deducedTitle && deducedAuthor) break;
+              }
+          }
+
+          // 3. Check fallback folder name
+          if (fallbackFolderName && fallbackFolderName !== 'Audio Book') {
+              const folderParts = fallbackFolderName.split(/\s*[-—–]\s*/);
+              if (folderParts.length >= 2) {
+                  if (!deducedAuthor && !/^\d+$/.test(folderParts[0])) {
+                      deducedAuthor = folderParts[0].trim();
+                  }
+                  if (!deducedTitle || deducedTitle === fallbackFolderName) {
+                      deducedTitle = folderParts.slice(1).join(' - ').trim();
+                  }
+              } else if (!deducedTitle) {
+                  deducedTitle = fallbackFolderName;
+              }
+          }
+
+          // 4. Final fallback
+          if (!deducedTitle) {
+              const firstClean = cleanNames[0] || 'Audio Book';
+              const strippedFirst = firstClean.replace(/^(\d{1,3}[\s._-]+)+/i, '').trim();
+              deducedTitle = strippedFirst || firstClean;
+          }
+
+          return { title: deducedTitle, author: deducedAuthor };
       };
 
-      audioFiles.forEach(file => {
-          const folderName = getFolderName(file);
-          if (!foldersMap[folderName]) foldersMap[folderName] = { audio: [], images: [] };
-          foldersMap[folderName].audio.push(file);
-      });
+      // Group files by their parent folder
+      const hasRelativePaths = fileArray.some(f => (f as any).webkitRelativePath && (f as any).webkitRelativePath.includes('/'));
+      const foldersMap: Record<string, { audio: File[], images: File[] }> = {};
 
-      imageFiles.forEach(file => {
-          const folderName = getFolderName(file);
-          if (foldersMap[folderName]) {
-              foldersMap[folderName].images.push(file);
-          }
-      });
+      const getFolderName = (file: File) => {
+          const relPath = (file as any).webkitRelativePath || '';
+          const parts = relPath.split('/').filter(Boolean);
+          return parts.length > 1 ? parts[parts.length - 2] : '';
+      };
+
+      if (!hasRelativePaths) {
+          // Mobile file selection (no webkitRelativePath): all selected files belong to the same book
+          foldersMap[''] = { audio: audioFiles, images: imageFiles };
+      } else {
+          audioFiles.forEach(file => {
+              const folderName = getFolderName(file);
+              if (!foldersMap[folderName]) foldersMap[folderName] = { audio: [], images: [] };
+              foldersMap[folderName].audio.push(file);
+          });
+
+          imageFiles.forEach(file => {
+              const folderName = getFolderName(file);
+              if (foldersMap[folderName]) {
+                  foldersMap[folderName].images.push(file);
+              } else {
+                  // Fallback: if image is at top level or slightly different path, attach to first folder
+                  const firstKey = Object.keys(foldersMap)[0];
+                  if (firstKey) {
+                      foldersMap[firstKey].images.push(file);
+                  }
+              }
+          });
+      }
 
       const newQueue = [];
       for (const [folderName, { audio: folderFiles, images: folderImages }] of Object.entries(foldersMap)) {
         let folderTitle = folderName;
         let folderAuthor = '';
+        let folderSeries = '';
         let extractedCover: string | undefined = undefined;
         let coverFile: File | undefined = undefined;
 
@@ -399,63 +499,86 @@ export function useLibrary({
         if (folderImages && folderImages.length > 0) {
             coverFile = folderImages.find(f => {
                 const lower = f.name.toLowerCase();
-                return lower.includes('cover') || lower.includes('folder') || lower.includes('front');
+                return lower.includes('cover') || lower.includes('folder') || lower.includes('front') || lower.includes('poster') || lower.includes('oblozhka') || lower.includes('art');
             }) || folderImages[0];
-            extractedCover = URL.createObjectURL(coverFile);
+            if (coverFile) {
+                extractedCover = URL.createObjectURL(coverFile);
+            }
         }
         
-        folderFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+        folderFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
 
-        // Fast probe of the first audio file to detect metadata tags without blocking the UI
+        // Fast probe candidate audio files to detect metadata tags and embedded cover (up to 3 candidate files, 7s timeout)
         if (folderFiles.length > 0) {
-            const firstFile = folderFiles[0];
-            try {
-                const ext = firstFile.name.split('.').pop()?.toLowerCase() || "";
-                const isMp4 = ['mp4', 'm4b', 'm4a'].includes(ext);
-                const probePromise = mm.parseBlob(firstFile, { 
-                    duration: false, 
-                    includeChapters: false,
-                    skipCovers: !!extractedCover
-                });
-                const meta: any = await Promise.race([
-                    probePromise,
-                    new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 2500))
-                ]);
-                if (meta?.common) {
-                    folderTitle = meta.common.album || meta.common.title || folderTitle;
-                    folderAuthor = meta.common.artist || meta.common.albumartist || meta.common.composer || '';
-                    if (!extractedCover && meta.common.picture && meta.common.picture.length > 0) {
-                        const pic = meta.common.picture[0];
-                        const blob = new Blob([pic.data], { type: pic.format });
-                        extractedCover = URL.createObjectURL(blob);
+            const candidateIndices = [0, 1, Math.floor(folderFiles.length / 2)].filter((idx, i, arr) => idx < folderFiles.length && arr.indexOf(idx) === i);
+
+            for (const idx of candidateIndices) {
+                const fileToProbe = folderFiles[idx];
+                try {
+                    const probePromise = mm.parseBlob(fileToProbe, { 
+                        duration: false, 
+                        includeChapters: false,
+                        skipCovers: !!extractedCover
+                    });
+                    const meta: any = await Promise.race([
+                        probePromise,
+                        new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 7000))
+                    ]);
+
+                    if (meta?.common) {
+                        const common = meta.common;
+                        const album = common.album?.trim();
+                        const artist = (common.artist || common.albumartist || common.composer)?.trim();
+                        const titleTag = common.title?.trim();
+
+                        if (!folderTitle || folderTitle === 'Audio Book') {
+                            if (album) {
+                                folderTitle = album;
+                            } else if (titleTag && !/^\d+$/.test(titleTag) && !/^track\s*\d+$/i.test(titleTag) && !/^глава\s*\d+$/i.test(titleTag)) {
+                                folderTitle = titleTag;
+                            }
+                        }
+
+                        if (!folderAuthor && artist) {
+                            folderAuthor = artist;
+                        }
+
+                        if (!folderSeries && (common.series || common.movementName || common.grouping)) {
+                            folderSeries = (common.series || common.movementName || common.grouping).trim();
+                        }
+
+                        if (!extractedCover && common.picture && common.picture.length > 0) {
+                            const pic = common.picture[0];
+                            const blob = new Blob([pic.data], { type: pic.format });
+                            extractedCover = URL.createObjectURL(blob);
+                            coverFile = blob as File;
+                        }
+
+                        if (folderTitle && folderAuthor && extractedCover) {
+                            break;
+                        }
                     }
+                } catch (e) {
+                    // Ignore and try next candidate
                 }
-            } catch (e) {
-                // Ignore fast probe error
             }
         }
 
-        const firstFileName = folderFiles[0]?.name.replace(/\.[a-zA-Z0-9]+$/, "") || folderTitle;
-        
-        if (!folderAuthor || folderTitle === folderName) {
-             const match = firstFileName.match(/^(.*?)\s*[-—]\s*(.*)$/);
-             if (match) {
-                 if (!folderAuthor) folderAuthor = match[1].trim();
-                 if (folderTitle === folderName) folderTitle = match[2].trim();
-             } else {
-                 const folderMatch = folderName.match(/^(.*?)\s*[-—]\s*(.*)$/);
-                 if (folderMatch) {
-                     if (!folderAuthor) folderAuthor = folderMatch[1].trim();
-                     if (folderTitle === folderName) folderTitle = folderMatch[2].trim();
-                 } else if (folderTitle === folderName) {
-                     folderTitle = firstFileName;
-                 }
-             }
+        // Smart deduction from filenames if title or author still missing
+        if (!folderTitle || folderTitle === 'Audio Book' || !folderAuthor) {
+            const { title: deducedTitle, author: deducedAuthor } = deduceBookInfoFromFiles(folderFiles, folderName);
+            if (!folderTitle || folderTitle === 'Audio Book') {
+                folderTitle = deducedTitle;
+            }
+            if (!folderAuthor && deducedAuthor) {
+                folderAuthor = deducedAuthor;
+            }
         }
 
         newQueue.push({
-          folderName: folderTitle,
-          author: folderAuthor,
+          folderName: folderTitle || 'Audio Book',
+          author: folderAuthor || '',
+          series: folderSeries || undefined,
           folderType: 'audio',
           extractedCover,
           coverFile,
@@ -484,7 +607,11 @@ export function useLibrary({
       setIsAudioModalOpen(false);
     }
 
-    const finalSeries = series !== undefined ? series : (current.series || current.bookObject?.series || undefined);
+    // If user provided a series string (even empty string ""), respect user choice.
+    // If empty string/whitespace, user explicitly deleted/cleared the series.
+    const finalSeries = series !== undefined 
+      ? (series.trim() ? series.trim() : undefined) 
+      : (current.series || current.bookObject?.series || undefined);
 
     // 1. Process pre-built eBook / Comic / PDF book object
     if (current.bookObject) {
@@ -722,6 +849,8 @@ export function useLibrary({
       endTime: 0
     }));
 
+    const persistedCoverFile = imageFile || (coverFile && (coverFile instanceof Blob || coverFile instanceof File) ? (coverFile as File) : undefined);
+
     const newBook: Book = {
       id: newBookId,
       title: finalTitle,
@@ -729,7 +858,7 @@ export function useLibrary({
       series: finalSeries,
       type: 'audio',
       coverUrl,
-      coverFile: imageFile,
+      coverFile: persistedCoverFile,
       size: totalChaptersSize,
       chapters: initialChapters
     };
@@ -744,7 +873,7 @@ export function useLibrary({
       handleSelectBook(newBook);
     }
 
-    // Progressively extract metadata and durations in background
+    // Progressively extract metadata, embedded covers and durations in background
     (async () => {
       let hasChanges = false;
       for (let i = 0; i < folderFiles.length; i++) {
@@ -752,16 +881,25 @@ export function useLibrary({
         try {
           const ext = file.name.split('.').pop()?.toLowerCase() || "";
           const isMp4 = ['mp4', 'm4b', 'm4a'].includes(ext);
-          const meta = await mm.parseBlob(file, { duration: !isMp4, includeChapters: false, skipCovers: true });
+          const meta = await mm.parseBlob(file, { duration: !isMp4, includeChapters: false, skipCovers: !!newBook.coverUrl });
           const dur = meta.format?.duration || 0;
           if (dur > 0) {
             initialChapters[i].duration = dur;
             initialChapters[i].endTime = (initialChapters[i].startTime || 0) + dur;
             hasChanges = true;
-            if (i % 2 === 0 || i === folderFiles.length - 1) {
-              setBooks(prev => prev.map(b => b.id === newBookId ? { ...b, chapters: [...initialChapters] } : b));
-              setCurrentBook(curr => curr?.id === newBookId ? { ...curr, chapters: [...initialChapters] } : curr);
-            }
+          }
+          if (!newBook.coverUrl && meta.common?.picture && meta.common.picture.length > 0) {
+            const pic = meta.common.picture[0];
+            const blob = new Blob([pic.data], { type: pic.format });
+            const bgCoverUrl = URL.createObjectURL(blob);
+            newBook.coverUrl = bgCoverUrl;
+            newBook.coverFile = blob as File;
+            hasChanges = true;
+            saveMetadata(newBook.id, newBook.title, newBook.author || '', bgCoverUrl, undefined, newBook.series);
+          }
+          if (hasChanges && (i % 2 === 0 || i === folderFiles.length - 1)) {
+            setBooks(prev => prev.map(b => b.id === newBookId ? { ...b, chapters: [...initialChapters], coverUrl: newBook.coverUrl, coverFile: newBook.coverFile } : b));
+            setCurrentBook(curr => curr?.id === newBookId ? { ...curr, chapters: [...initialChapters], coverUrl: newBook.coverUrl, coverFile: newBook.coverFile } : curr);
           }
         } catch (e) {}
       }
@@ -819,11 +957,28 @@ export function useLibrary({
           console.error("Failed to save deleted list", e);
       }
 
-      // 3. Remove book metadata and progress history
+      // 3. Remove book metadata, progress history, and bookmarks
       try {
           await deleteBookHistory(bookId);
       } catch (e) {
           console.error("Failed to delete book history and metadata", e);
+      }
+
+      try {
+          const keysToRemove = [
+              `cool_read_bookmarks_${bookId}`,
+              bookToDelete?.title ? `cool_read_bookmarks_${bookToDelete.title}` : null
+          ].filter(Boolean) as string[];
+
+          for (const key of keysToRemove) {
+              if (isNative) {
+                  await Preferences.remove({ key }).catch(() => {});
+              } else {
+                  localStorage.removeItem(key);
+              }
+          }
+      } catch (e) {
+          console.warn("Failed to delete book bookmarks", e);
       }
 
       // 4. Delete from IndexedDB persistence and memory books state
@@ -1048,18 +1203,23 @@ export function useLibrary({
       setIsLoading(true);
       try {
         // Load Metadata, History and Deleted List
+        let currentDeletedIds: string[] = [];
         try {
           const metaVal = isNative ? (await Preferences.get({ key: 'cool_read_metadata' })).value : localStorage.getItem('cool_read_metadata');
           if (metaVal) setBookMetadataMap(JSON.parse(metaVal));
 
           const delVal = isNative ? (await Preferences.get({ key: 'cool_read_deleted' })).value : localStorage.getItem('cool_read_deleted');
-          if (delVal) setDeletedBookIds(JSON.parse(delVal));
+          if (delVal) {
+            currentDeletedIds = JSON.parse(delVal);
+            setDeletedBookIds(currentDeletedIds);
+          }
         } catch (e) {
           console.error("Failed to load initial settings", e);
         }
         
-        // Always load manually added books from IndexedDB first
-        const persistentBooks = await getAllPersistentBooks();
+        // Always load manually added books from IndexedDB first, filtering out any deleted books
+        const rawPersistentBooks = await getAllPersistentBooks();
+        const persistentBooks = (rawPersistentBooks || []).filter(b => b && b.id && !currentDeletedIds.includes(b.id));
         let hydratedPersistent: Book[] = [];
         
         // Ensure metadata map is available for hydration
@@ -1070,11 +1230,8 @@ export function useLibrary({
         } catch (e) {}
 
         if (persistentBooks && persistentBooks.length > 0) {
-          // Recreate Blob URLs for persistent books
           hydratedPersistent = persistentBooks.map(book => {
             const meta = loadedMeta[book.id];
-            
-            const isComic = book.format === 'comic' || book.format === 'cbr' || book.format === 'cbz';
             
             return {
               ...book,
@@ -1085,17 +1242,10 @@ export function useLibrary({
               coverUrl: meta?.coverUrl || (book.coverFile && (book.coverFile instanceof Blob || book.coverFile instanceof File)
                 ? URL.createObjectURL(book.coverFile)
                 : book.coverUrl),
-              chapters: (book.chapters || []).map((ch: any, idx: number) => {
-                const hasFile = ch.file && (ch.file instanceof Blob || ch.file instanceof File);
-                const freshUrl = hasFile ? URL.createObjectURL(ch.file) : ch.url;
-                let newContent = ch.content;
-                if (hasFile && isComic) {
-                  newContent = `<img src="${freshUrl}" alt="${ch.name || `Page ${idx + 1}`}" style="width: 100%; height: auto;" />`;
-                }
+              chapters: (book.chapters || []).map((ch: any) => {
                 return {
                   ...ch,
-                  url: freshUrl,
-                  content: newContent
+                  url: ch.url || ''
                 };
               })
             };

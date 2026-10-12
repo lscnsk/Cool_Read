@@ -94,6 +94,18 @@ input[type=range]:focus { outline: none; }
   contain: layout style;
 }
 
+.reader-dash {
+  display: inline !important;
+}
+
+.reader-dash-glyph {
+  display: inline !important;
+  font-size: 0.82em !important;
+  line-height: inherit !important;
+  vertical-align: 0.04em !important;
+  letter-spacing: normal !important;
+}
+
 .dash-fixed {
   white-space: nowrap !important;
 }
@@ -125,7 +137,9 @@ input[type=range]:focus { outline: none; }
 .punct-tight {
   display: inline !important;
   white-space: nowrap !important;
-  font-feature-settings: normal !important;
+  font-feature-settings: "kern" 1, normal !important;
+  font-kerning: normal !important;
+  text-rendering: optimizeLegibility !important;
   font-variant-numeric: normal !important;
 }
 
@@ -138,16 +152,30 @@ input[type=range]:focus { outline: none; }
   display: inline !important;
   white-space: nowrap !important;
   letter-spacing: normal !important;
+  font-kerning: normal !important;
   margin-right: 0.03em;
 }
 
 .punct-tight-combo .punct-mark {
-  letter-spacing: -0.04em !important;
   display: inline !important;
 }
 
-.punct-tight-combo .punct-dots {
-  margin-left: -0.10em !important;
+.punct-combo-exclamation .punct-mark {
+  letter-spacing: normal !important;
+}
+
+.punct-combo-exclamation .punct-dots {
+  margin-left: -0.05em !important;
+  letter-spacing: -0.09em !important;
+  display: inline !important;
+}
+
+.punct-combo-question .punct-mark {
+  letter-spacing: -0.05em !important;
+}
+
+.punct-combo-question .punct-dots {
+  margin-left: -0.22em !important;
   letter-spacing: -0.09em !important;
   display: inline !important;
 }
@@ -258,6 +286,7 @@ input[type=range]:focus { outline: none; }
   letter-spacing: -0.005em;
   font-kerning: normal;
   font-feature-settings: "kern" 1, "liga" 1, "calt" 1, "locl" 1;
+  font-variant-numeric: normal;
   text-rendering: optimizeLegibility;
 }
 
@@ -355,6 +384,194 @@ input[type=range]:focus { outline: none; }
   margin-top: 0.5em;
   margin-bottom: 0.8em;
   word-spacing: normal !important;
+}
+
+/* Tables Typography & Layout: smaller font size than main body text and strictly no first-line indent */
+.reader-content table,
+.reader-content table *,
+.reader-content table th,
+.reader-content table td,
+.reader-content table tr,
+.reader-content table thead,
+.reader-content table tbody,
+.reader-content table tfoot,
+.reader-content table p,
+.reader-content table div,
+.reader-content table span,
+.reader-content table em,
+.reader-content table strong,
+.reader-content table b,
+.reader-content table i,
+.reader-content table a,
+.reader-content table li,
+.reader-content table blockquote,
+.reader-content td,
+.reader-content th,
+.reader-content td p,
+.reader-content th p {
+  text-indent: 0 !important;
+  margin-left: 0;
+}
+
+.reader-content table,
+.reader-content table th,
+.reader-content table td,
+.reader-content table p,
+.reader-content table span,
+.reader-content table div,
+.reader-content table em,
+.reader-content table strong,
+.reader-content table b,
+.reader-content table i,
+.reader-content table a,
+.reader-content table li,
+.reader-content table blockquote {
+  font-size: 0.85em !important;
+  line-height: 1.35 !important;
+}
+
+/* Scrollable Table Wrapper */
+.reader-content .table-scroll-wrapper {
+  display: block !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  -webkit-overflow-scrolling: touch !important;
+  margin: 1.2em 0 !important;
+  text-indent: 0 !important;
+  padding-bottom: 4px !important;
+}
+
+.reader-content .table-scroll-wrapper::-webkit-scrollbar {
+  height: 6px !important;
+}
+
+.reader-content .table-scroll-wrapper::-webkit-scrollbar-track {
+  background: rgba(128, 128, 128, 0.08) !important;
+  border-radius: 4px !important;
+}
+
+.reader-content .table-scroll-wrapper::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.3) !important;
+  border-radius: 4px !important;
+}
+
+.reader-content .table-scroll-wrapper::-webkit-scrollbar-thumb:hover {
+  background: rgba(128, 128, 128, 0.5) !important;
+}
+
+.reader-content table {
+  width: 100% !important;
+  min-width: 100% !important;
+  max-width: none !important;
+  border-collapse: collapse !important;
+  margin: 0 auto !important;
+  display: table !important;
+  box-sizing: border-box !important;
+  word-break: normal !important;
+  overflow-wrap: break-word !important;
+  text-indent: 0 !important;
+}
+
+.reader-content table th,
+.reader-content table td {
+  padding: 0.35em 0.55em !important;
+  border: 1px solid rgba(128, 128, 128, 0.28) !important;
+  vertical-align: top !important;
+  text-align: left !important;
+  text-align-last: left !important;
+  -webkit-text-align-last: left !important;
+  text-justify: auto !important;
+  -webkit-text-justify: auto !important;
+  word-spacing: normal !important;
+  letter-spacing: normal !important;
+  text-indent: 0 !important;
+  box-sizing: border-box !important;
+}
+
+.reader-content table th {
+  font-weight: bold !important;
+  text-align: left !important;
+  text-align-last: left !important;
+  -webkit-text-align-last: left !important;
+  background-color: rgba(128, 128, 128, 0.08) !important;
+}
+
+.reader-content table td p,
+.reader-content table th p,
+.reader-content table p,
+.reader-content table div {
+  text-indent: 0 !important;
+  margin: 0.15em 0 !important;
+  padding: 0 !important;
+  text-align: left !important;
+  text-align-last: left !important;
+  -webkit-text-align-last: left !important;
+  text-justify: auto !important;
+  -webkit-text-justify: auto !important;
+  word-spacing: normal !important;
+  letter-spacing: normal !important;
+}
+
+/* Lists (Ordered & Unordered) Typography & Layout - slightly smaller font size than main body text */
+.reader-content ul,
+.reader-content ol {
+  margin: 0.9em 0 0.9em 1.5em !important;
+  padding-left: 0.5em !important;
+}
+
+.reader-content ul {
+  list-style-type: disc !important;
+  text-indent: 0 !important;
+}
+
+.reader-content ol {
+  list-style-type: decimal !important;
+}
+
+.reader-content ul li,
+.reader-content ol li,
+.reader-content li,
+.reader-content li p,
+.reader-content li div,
+.reader-content li span,
+.reader-content li em,
+.reader-content li strong,
+.reader-content li b,
+.reader-content li i,
+.reader-content li a {
+  font-size: 0.85em !important;
+  line-height: 1.38 !important;
+}
+
+/* Bulleted lists: NO first-line indent (красная строка убрана) */
+.reader-content ul,
+.reader-content ul *,
+.reader-content .bullet-list,
+.reader-content .bullet-list *,
+.reader-content ul li,
+.reader-content ul li p,
+.reader-content ul li div,
+.reader-content ul li span,
+.reader-content ul p {
+  text-indent: 0 !important;
+}
+
+/* Numbered lists: Keep first-line indent (красная строка оставлена) */
+.reader-content ol li,
+.reader-content ol li p,
+.reader-content ol li div,
+.reader-content ol p {
+  text-indent: 1.5em;
+}
+
+.reader-content li {
+  margin-bottom: 0.35em !important;
+}
+
+.reader-content li p {
+  margin: 0.15em 0 !important;
 }
 
 .reader-content .empty-line {

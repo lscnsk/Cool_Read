@@ -141,7 +141,7 @@ const EBookControls: React.FC<EBookControlsProps> = ({
                           ? (isMarcel ? 'text-red-700' : isBimbo ? 'text-red-600' : isSurf ? 'text-red-600' : 'text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.7)]') 
                           : (isMarcel ? 'text-[#2F2440]/40 hover:text-[#2F2440]/70' : isBimbo ? 'text-[#BE123C]/40 hover:text-[#BE123C]/70' : isSurf ? 'text-[#7dd3fc] hover:text-[#0ea5e9]' : 'text-[#888] hover:text-[#fffff0]/70')
                       }`}
-                      title="Formatted text mode (drop cap)"
+                      title="Буквица и книжная типографика (ё → е, т.д.)"
                     >
                        <Pilcrow size={16} />
                     </button>

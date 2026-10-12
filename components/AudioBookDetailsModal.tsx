@@ -40,7 +40,7 @@ export const AudioBookDetailsModal: React.FC<AudioBookDetailsModalProps> = ({
   }, [isOpen, suggestedTitle, suggestedAuthor, suggestedSeries]);
 
   const handleConfirm = () => {
-    onConfirm(title || suggestedTitle, author, series.trim() || undefined);
+    onConfirm(title || suggestedTitle, author, series.trim());
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

@@ -25,15 +25,35 @@ export const initDB = () => {
 
 export const saveBookToDB = async (book: any) => {
   try {
+    if (!book || !book.id) return;
+
+    // Never persist a deleted book!
+    try {
+      if (typeof window !== 'undefined') {
+        const deletedStr = localStorage.getItem('cool_read_deleted');
+        if (deletedStr) {
+          const deletedIds: string[] = JSON.parse(deletedStr);
+          if (deletedIds.includes(book.id)) {
+            return;
+          }
+        }
+      }
+    } catch (e) {}
+
     const db = await initDB();
     const tx = db.transaction(BOOKS_STORE, 'readwrite');
     const store = tx.objectStore(BOOKS_STORE);
     
-    // We need to make sure we don't save heavy chapter content if it's already parsed
-    // But we DO need to save the original file data for manually added books
-    // Since we can't save File objects, we might need to convert them to Blobs/ArrayBuffers
+    // Strip heavy chapter content before saving to IndexedDB to avoid storage explosion
+    const cleanBook = {
+      ...book,
+      chapters: (book.chapters || []).map((ch: any) => {
+        const { content, ...rest } = ch;
+        return rest;
+      })
+    };
     
-    await store.put(book);
+    store.put(cleanBook);
     return new Promise<void>((resolve, reject) => {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
@@ -43,12 +63,18 @@ export const saveBookToDB = async (book: any) => {
   }
 };
 
-export const deleteBookFromDB = async (id: string) => {
+export const deleteBookFromDB = async (id: string): Promise<void> => {
   try {
     const db = await initDB();
-    const tx = db.transaction(BOOKS_STORE, 'readwrite');
-    await tx.objectStore(BOOKS_STORE).delete(id);
-  } catch (e) {}
+    return new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(BOOKS_STORE, 'readwrite');
+      tx.objectStore(BOOKS_STORE).delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (e) {
+    console.error("Error deleting book from DB:", e);
+  }
 };
 
 export const getAllPersistentBooks = async () => {

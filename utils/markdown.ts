@@ -4,39 +4,48 @@ import { Chapter } from '../types';
  * Converts chapter HTML content to clean Markdown text,
  * stripping bionic reading artifacts and dropcaps.
  */
-export function convertChapterToMarkdown(chapter: Chapter): string {
-  if (!chapter) return '';
+export function convertChapterToMarkdown(chapter: Chapter, sourceHtml?: string): string {
+  if (!chapter && !sourceHtml) return '';
 
-  const rawHtml = chapter.content || '';
+  const rawHtml = sourceHtml || chapter?.content || '';
   if (!rawHtml.trim()) {
-    return chapter.name ? `# ${chapter.name}\n` : '';
+    return chapter?.name ? `# ${chapter.name}\n` : '';
   }
+
+  // Strip xml declaration if present
+  let cleanHtml = rawHtml.replace(/^<\?xml[^>]*\?>/i, '').trim();
 
   // Parse HTML into a temporary DOM tree
   const parser = new DOMParser();
-  const doc = parser.parseFromString(`<body>${rawHtml}</body>`, 'text/html');
-  const body = doc.body;
+  let doc: Document;
+  if (/<!DOCTYPE/i.test(cleanHtml) || /<html[\s>]/i.test(cleanHtml) || /<body[\s>]/i.test(cleanHtml)) {
+    doc = parser.parseFromString(cleanHtml, 'text/html');
+  } else {
+    doc = parser.parseFromString(`<!DOCTYPE html><html><head></head><body>${cleanHtml}</body></html>`, 'text/html');
+  }
 
-  // 1. Remove script, style, and svg elements
-  body.querySelectorAll('script, style, svg').forEach(el => el.remove());
+  const root = doc.body || doc.documentElement;
+  if (!root) return '';
+
+  // 1. Remove non-content elements
+  root.querySelectorAll('script, style, svg, noscript').forEach(el => el.remove());
 
   // 2. Strip Bionic Reading tags (b.font-bold created by bionic formatter)
-  body.querySelectorAll('b.font-bold').forEach(b => {
+  root.querySelectorAll('b.font-bold').forEach(b => {
     const textNode = doc.createTextNode(b.textContent || '');
     b.parentNode?.replaceChild(textNode, b);
   });
 
-  // 3. Strip Dropcaps and merge them cleanly into surrounding text
-  body.querySelectorAll('.dropcap, .drop-cap, .first-letter, .dash-word-lead, .dash-fixed, .dash-space, .punct-tight').forEach(el => {
+  // 3. Strip Dropcaps, reader-dash, and typographic wrapper spans into plain text
+  root.querySelectorAll('.dropcap, .drop-cap, .reader-dropcap, .first-letter, .dash-word-lead, .dash-fixed, .dash-space, .reader-dash, .reader-dash-glyph, .punct-tight, .punct-dots, .punct-mark').forEach(el => {
     const text = el.textContent || '';
     const textNode = doc.createTextNode(text);
     el.parentNode?.replaceChild(textNode, el);
   });
 
-  // 4. Helper function to recursively convert DOM nodes to Markdown
+  // 4. Recursive conversion
   function nodeToMarkdown(node: Node): string {
     if (node.nodeType === Node.TEXT_NODE) {
-      // Clean soft hyphens, zero-width spaces, and normalize non-breaking spaces
       const val = node.nodeValue || '';
       return val
         .replace(/[\u00AD\u200B\u200C\u200D\uFEFF]/g, '')
@@ -50,12 +59,10 @@ export function convertChapterToMarkdown(chapter: Chapter): string {
     const el = node as HTMLElement;
     const tagName = el.tagName.toLowerCase();
 
-    // Check for dropcap or dash lead inside an element
     if (el.classList.contains('empty-line')) {
       return '\n\n';
     }
 
-    // Children markdown
     const getChildrenMd = (): string => {
       let res = '';
       node.childNodes.forEach(child => {
@@ -90,7 +97,6 @@ export function convertChapterToMarkdown(chapter: Chapter): string {
         return text ? `###### ${text}\n\n` : '';
       }
       case 'p': {
-        // Check if this paragraph is a verse in a poem
         if (el.classList.contains('verse')) {
           const text = getChildrenMd().trim();
           return text ? `${text}  \n` : '\n';
@@ -98,12 +104,51 @@ export function convertChapterToMarkdown(chapter: Chapter): string {
         const text = getChildrenMd().trim();
         return text ? `${text}\n\n` : '';
       }
+      case 'v': {
+        const text = getChildrenMd().trim();
+        return text ? `${text}  \n` : '\n';
+      }
+      case 'stanza': {
+        const text = getChildrenMd().trim();
+        return text ? `${text}\n\n` : '';
+      }
+      case 'poem': {
+        const text = getChildrenMd().trim();
+        return text ? `${text}\n\n` : '';
+      }
       case 'blockquote':
-      case 'cite': {
+      case 'cite':
+      case 'epigraph':
+      case 'annotation': {
         const text = getChildrenMd().trim();
         if (!text) return '';
         const lines = text.split('\n');
         return lines.map(l => `> ${l}`).join('\n') + '\n\n';
+      }
+      case 'text-author': {
+        const text = getChildrenMd().trim();
+        return text ? `> – *${text}*\n\n` : '';
+      }
+      case 'subtitle': {
+        const text = getChildrenMd().trim();
+        return text ? `### ${text}\n\n` : '';
+      }
+      case 'date': {
+        const text = getChildrenMd().trim();
+        return text ? `*${text}*\n\n` : '';
+      }
+      case 'section':
+      case 'article':
+      case 'main':
+      case 'header':
+      case 'footer':
+      case 'aside':
+      case 'details':
+      case 'figure':
+      case 'figcaption':
+      case 'center': {
+        const text = getChildrenMd().trim();
+        return text ? `${text}\n\n` : '';
       }
       case 'ul': {
         let res = '';
@@ -129,12 +174,14 @@ export function convertChapterToMarkdown(chapter: Chapter): string {
         return getChildrenMd().trim();
       }
       case 'strong':
-      case 'b': {
+      case 'b':
+      case 'strong-text': {
         const text = getChildrenMd().trim();
         return text ? `**${text}**` : '';
       }
       case 'em':
-      case 'i': {
+      case 'i':
+      case 'emphasis': {
         const text = getChildrenMd().trim();
         return text ? `*${text}*` : '';
       }
@@ -156,7 +203,6 @@ export function convertChapterToMarkdown(chapter: Chapter): string {
         const text = getChildrenMd().trim();
         const href = el.getAttribute('href');
         if (!text) return '';
-        // If it's a footnote reference (e.g. #note-1 or [1])
         if (href && href.startsWith('#')) {
           return text;
         }
@@ -171,8 +217,22 @@ export function convertChapterToMarkdown(chapter: Chapter): string {
         if (!src) return '';
         return `![${alt}](${src})\n\n`;
       }
+      case 'table': {
+        let res = '';
+        const rows = el.querySelectorAll('tr');
+        rows.forEach(tr => {
+          const cells = Array.from(tr.querySelectorAll('th, td')).map(c => nodeToMarkdown(c).trim());
+          if (cells.length > 0) {
+            res += `| ${cells.join(' | ')} |\n`;
+          }
+        });
+        return res ? `${res}\n` : '';
+      }
+      case 'title': {
+        const text = getChildrenMd().trim();
+        return text ? `## ${text}\n\n` : '';
+      }
       case 'div': {
-        // Special div handling (titles, epigraphs, poems, subtitles)
         if (el.classList.contains('title')) {
           const text = getChildrenMd().trim();
           if (!text) return '';
@@ -192,13 +252,12 @@ export function convertChapterToMarkdown(chapter: Chapter): string {
         }
         if (el.classList.contains('text-author')) {
           const text = getChildrenMd().trim();
-          return text ? `> — *${text}*\n\n` : '';
+          return text ? `> – *${text}*\n\n` : '';
         }
         if (el.classList.contains('poem') || el.classList.contains('stanza')) {
           const text = getChildrenMd().trim();
           return text ? `${text}\n\n` : '';
         }
-        // Generic div: process children
         const text = getChildrenMd();
         return text ? `${text}\n` : '';
       }
@@ -209,18 +268,18 @@ export function convertChapterToMarkdown(chapter: Chapter): string {
   }
 
   let markdown = '';
-  body.childNodes.forEach(child => {
+  root.childNodes.forEach(child => {
     markdown += nodeToMarkdown(child);
   });
 
-  // Clean up excessive whitespace and newlines
+  // Clean up excessive newlines while preserving markdown block structure
   markdown = markdown
-    .replace(/[ \t]+/g, ' ')
+    .replace(/[^\S\r\n]{2,}(?!\n)/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
-  // If chapter title is not already present as first heading, prepend it
-  const title = (chapter.name || '').trim();
+  // If chapter title is provided and not already at start of markdown, prepend it
+  const title = (chapter?.name || '').trim();
   if (title && title !== '-' && title.toLowerCase() !== 'cover') {
     const firstLine = markdown.split('\n')[0]?.trim() || '';
     const cleanFirstLine = firstLine.replace(/^#+\s*/, '').trim();
