@@ -6,7 +6,8 @@ import { Filesystem, Directory } from '@capacitor/filesystem';
 import { SplashScreen } from '@capacitor/splash-screen';
 import * as mm from 'music-metadata';
 import { Book, Chapter, AppMode, PersistedState } from '../types';
-import { getAllPersistentBooks, saveBookToDB, deleteBookFromDB } from '../utils/db';
+import { getAllPersistentBooks, saveBookToDB, deleteBookFromDB, purgeDeletedBooksFromDB } from '../utils/db';
+import { getAudioDuration } from '../utils/audio';
 import { parseM4AChapters } from '../utils/mp4chapters';
 import { parseComic, extractComicCover } from '../utils/archive';
 import { parseFb2, parseEpub, extractFb2Metadata, extractEpubMetadata } from '../utils/ebook';
@@ -22,7 +23,7 @@ interface UseLibraryProps {
     setBookProgressMap: React.Dispatch<React.SetStateAction<Record<string, PersistedState>>>;
     setBookMetadataMap: React.Dispatch<React.SetStateAction<Record<string, any>>>;
     saveMetadata: (id: string, title: string, author: string, coverUrl?: string) => void;
-    deleteBookHistory: (id: string) => Promise<void>;
+    deleteBookHistory: (id: string, title?: string) => Promise<void>;
     handleSelectBook: (book: Book, specificProgressMap?: Record<string, PersistedState>) => Promise<void>;
     saveState: (isClosingApp?: boolean) => Promise<PersistedState | null>;
     books: Book[];
@@ -112,6 +113,18 @@ export function useLibrary({
     isAudioModalOpen,
     setIsAudioModalOpen
 }: UseLibraryProps) {
+  const deletedBookIdsRef = useRef(deletedBookIds);
+  useEffect(() => { deletedBookIdsRef.current = deletedBookIds; }, [deletedBookIds]);
+
+  const isBookDeleted = (id: string, title?: string) => {
+    if (deletedBookIdsRef.current.includes(id)) return true;
+    if (title && deletedBookIdsRef.current.includes(title)) return true;
+    try {
+      const delStr = localStorage.getItem('cool_read_deleted');
+      if (delStr && JSON.parse(delStr).includes(id)) return true;
+    } catch (e) {}
+    return false;
+  };
 
   // --- Mode Switching ---
   const switchMode = async () => {
@@ -715,6 +728,7 @@ export function useLibrary({
         (async () => {
           let merged = [...initialChapters];
           for (let i = 1; i < comicArchiveFiles.length; i++) {
+            if (isBookDeleted(newBookId, finalTitle)) return;
             const file = comicArchiveFiles[i];
             try {
               const parsed = await parseComic(file, `${newBookId}_${i}`);
@@ -727,6 +741,7 @@ export function useLibrary({
                 }));
                 merged = [...merged, ...formatted];
                 newBook.chapters = merged;
+                if (isBookDeleted(newBookId, finalTitle)) return;
                 setBooks(prev => prev.map(b => b.id === newBookId ? { ...b, chapters: merged } : b));
                 setCurrentBook(curr => curr?.id === newBookId ? { ...curr, chapters: merged } : curr);
               }
@@ -734,7 +749,9 @@ export function useLibrary({
               console.error("Progressive comic loading error:", file.name, err);
             }
           }
-          await saveBookToDB(newBook);
+          if (!isBookDeleted(newBookId, finalTitle)) {
+            await saveBookToDB(newBook);
+          }
         })();
       }
       return;
@@ -791,6 +808,7 @@ export function useLibrary({
           const remainingFiles = looseImageFiles.slice(initialCount);
           const chunkSize = 20;
           for (let i = 0; i < remainingFiles.length; i += chunkSize) {
+            if (isBookDeleted(newBookId, finalTitle)) return;
             const chunk = remainingFiles.slice(i, i + chunkSize);
             const chunkChapters = chunk.map((file, cIdx) => {
               const pageIdx = initialCount + i + cIdx + 1;
@@ -806,11 +824,14 @@ export function useLibrary({
             });
             merged = [...merged, ...chunkChapters];
             newBook.chapters = merged;
+            if (isBookDeleted(newBookId, finalTitle)) return;
             setBooks(prev => prev.map(b => b.id === newBookId ? { ...b, chapters: merged } : b));
             setCurrentBook(curr => curr?.id === newBookId ? { ...curr, chapters: merged } : curr);
             await new Promise(r => setTimeout(r, 10));
           }
-          await saveBookToDB(newBook);
+          if (!isBookDeleted(newBookId, finalTitle)) {
+            await saveBookToDB(newBook);
+          }
         })();
       }
       return;
@@ -844,9 +865,7 @@ export function useLibrary({
       path: newBookId + "/" + f.name,
       file: f,
       url: URL.createObjectURL(f),
-      duration: 0,
-      startTime: 0,
-      endTime: 0
+      duration: 0
     }));
 
     const persistedCoverFile = imageFile || (coverFile && (coverFile instanceof Blob || coverFile instanceof File) ? (coverFile as File) : undefined);
@@ -876,34 +895,65 @@ export function useLibrary({
     // Progressively extract metadata, embedded covers and durations in background
     (async () => {
       let hasChanges = false;
-      for (let i = 0; i < folderFiles.length; i++) {
+      // Probe index sequence: start with first chapter and last chapter, then remaining chapters
+      const indicesToProbe: number[] = [];
+      if (folderFiles.length > 0) indicesToProbe.push(0);
+      if (folderFiles.length > 1) indicesToProbe.push(folderFiles.length - 1);
+      for (let i = 1; i < folderFiles.length - 1; i++) {
+        indicesToProbe.push(i);
+      }
+
+      for (const i of indicesToProbe) {
+        if (isBookDeleted(newBookId, finalTitle)) return;
         const file = folderFiles[i];
         try {
           const ext = file.name.split('.').pop()?.toLowerCase() || "";
           const isMp4 = ['mp4', 'm4b', 'm4a'].includes(ext);
-          const meta = await mm.parseBlob(file, { duration: !isMp4, includeChapters: false, skipCovers: !!newBook.coverUrl });
-          const dur = meta.format?.duration || 0;
+          let dur = 0;
+          try {
+            const meta = await mm.parseBlob(file, { duration: !isMp4, includeChapters: false, skipCovers: !!newBook.coverUrl });
+            dur = meta.format?.duration || 0;
+            if (!newBook.coverUrl && meta.common?.picture && meta.common.picture.length > 0) {
+              const pic = meta.common.picture[0];
+              const blob = new Blob([pic.data], { type: pic.format });
+              const bgCoverUrl = URL.createObjectURL(blob);
+              newBook.coverUrl = bgCoverUrl;
+              newBook.coverFile = blob as File;
+              hasChanges = true;
+              saveMetadata(newBook.id, newBook.title, newBook.author || '', bgCoverUrl, undefined, newBook.series);
+            }
+          } catch (e) {}
+
+          // Fallback to HTML Audio element if duration is not known (e.g. mp4/m4b/m4a or missing tags)
+          if (dur <= 0 && initialChapters[i]?.url) {
+            try {
+              dur = await getAudioDuration(initialChapters[i].url);
+            } catch (e) {}
+          }
+
           if (dur > 0) {
             initialChapters[i].duration = dur;
-            initialChapters[i].endTime = (initialChapters[i].startTime || 0) + dur;
             hasChanges = true;
+
+            // Recalculate accumulated start and end times across all chapters
+            let acc = 0;
+            for (let c = 0; c < initialChapters.length; c++) {
+              initialChapters[c].startTime = acc;
+              const d = initialChapters[c].duration || 0;
+              acc += d;
+              initialChapters[c].endTime = acc;
+            }
           }
-          if (!newBook.coverUrl && meta.common?.picture && meta.common.picture.length > 0) {
-            const pic = meta.common.picture[0];
-            const blob = new Blob([pic.data], { type: pic.format });
-            const bgCoverUrl = URL.createObjectURL(blob);
-            newBook.coverUrl = bgCoverUrl;
-            newBook.coverFile = blob as File;
-            hasChanges = true;
-            saveMetadata(newBook.id, newBook.title, newBook.author || '', bgCoverUrl, undefined, newBook.series);
-          }
+
+          if (isBookDeleted(newBookId, finalTitle)) return;
+
           if (hasChanges && (i % 2 === 0 || i === folderFiles.length - 1)) {
             setBooks(prev => prev.map(b => b.id === newBookId ? { ...b, chapters: [...initialChapters], coverUrl: newBook.coverUrl, coverFile: newBook.coverFile } : b));
             setCurrentBook(curr => curr?.id === newBookId ? { ...curr, chapters: [...initialChapters], coverUrl: newBook.coverUrl, coverFile: newBook.coverFile } : curr);
           }
         } catch (e) {}
       }
-      if (hasChanges) {
+      if (hasChanges && !isBookDeleted(newBookId, finalTitle)) {
         newBook.chapters = initialChapters;
         await saveBookToDB(newBook);
       }
@@ -916,50 +966,110 @@ export function useLibrary({
   };
 
   const handleDeleteBook = async (bookId: string) => {
-      if (currentBook?.id === bookId) {
-          setIsPlaying(false);
-          setCurrentBook(null);
-      }
-
-      // 1. Release Blob URLs from browser RAM memory
+      // 1. Find book to delete first
       const bookToDelete = books.find(b => b.id === bookId);
-      if (bookToDelete) {
-          if (bookToDelete.coverUrl && bookToDelete.coverUrl.startsWith('blob:')) {
-              try {
-                  URL.revokeObjectURL(bookToDelete.coverUrl);
-              } catch (e) {
-                  console.error("Failed to revoke coverUrl", e);
-              }
-          }
-          bookToDelete.chapters?.forEach(ch => {
-              if (ch.url && ch.url.startsWith('blob:')) {
-                  try {
-                      URL.revokeObjectURL(ch.url);
-                  } catch (e) {
-                      console.error("Failed to revoke chapter url", e);
-                  }
-              }
-          });
-      }
+      const targetTitle = bookToDelete?.title;
 
-      // 2. Add to deleted IDs log (so native scans won't re-detect it)
-      const updated = [...deletedBookIds, bookId];
+      // 2. Synchronously record in deleted IDs log FIRST to immediately cancel any background workers
+      const updated = Array.from(new Set([
+        ...deletedBookIds, 
+        bookId, 
+        ...(targetTitle ? [targetTitle] : [])
+      ]));
       setDeletedBookIds(updated);
+      deletedBookIdsRef.current = updated;
       
       const str = JSON.stringify(updated);
       try {
           if (isNative) {
               await Preferences.set({ key: 'cool_read_deleted', value: str });
-          } else {
-              localStorage.setItem('cool_read_deleted', str);
           }
+          localStorage.setItem('cool_read_deleted', str);
       } catch (e) {
           console.error("Failed to save deleted list", e);
       }
 
-      // 3. Remove book metadata, progress history, and bookmarks
+      // 3. If currently playing/open, immediately stop and detach audio
+      if (currentBook?.id === bookId || (targetTitle && currentBook?.title === targetTitle)) {
+          setIsPlaying(false);
+          setCurrentBook(null);
+      }
+
+      // 4. Release Blob URLs from browser RAM memory
+      if (bookToDelete) {
+          if (bookToDelete.coverUrl && bookToDelete.coverUrl.startsWith('blob:')) {
+              try {
+                  URL.revokeObjectURL(bookToDelete.coverUrl);
+              } catch (e) {}
+          }
+          bookToDelete.chapters?.forEach(ch => {
+              if (ch.url && ch.url.startsWith('blob:')) {
+                  try {
+                      URL.revokeObjectURL(ch.url);
+                  } catch (e) {}
+              }
+          });
+      }
+
+      // 5. Physical deletion for native files on device internal storage
+      if (isNative && bookToDelete) {
+          try {
+              const directoriesToCheck = [
+                  Directory.ExternalStorage,
+                  Directory.Documents,
+                  Directory.Data,
+                  Directory.Cache
+              ];
+
+              // Delete individual files
+              for (const ch of bookToDelete.chapters || []) {
+                  if (ch.path) {
+                      const cleanPath = ch.path.replace(/^\/+/, '');
+                      for (const dir of directoriesToCheck) {
+                          await Filesystem.deleteFile({ path: cleanPath, directory: dir }).catch(() => {});
+                          await Filesystem.deleteFile({ path: ch.path, directory: dir }).catch(() => {});
+                      }
+                  }
+              }
+
+              // If bookId is a file path (e.g. single epub / audio file)
+              if (bookId.match(/\.(epub|fb2|pdf|cbr|cbz|mp3|m4b|m4a|mp4)$/i)) {
+                  const cleanPath = bookId.replace(/^\/+/, '');
+                  for (const dir of directoriesToCheck) {
+                      await Filesystem.deleteFile({ path: cleanPath, directory: dir }).catch(() => {});
+                      await Filesystem.deleteFile({ path: bookId, directory: dir }).catch(() => {});
+                  }
+              }
+
+              // If book was stored inside a directory (e.g. Download/CoolRead/Title)
+              const candidateDirs = new Set<string>();
+              if (bookId.includes('/') && !bookId.match(/\.[a-zA-Z0-9]+$/)) {
+                  candidateDirs.add(bookId);
+              }
+              bookToDelete.chapters?.forEach(ch => {
+                  if (ch.path && ch.path.includes('/')) {
+                      const parent = ch.path.substring(0, ch.path.lastIndexOf('/'));
+                      if (parent && parent !== 'Download' && parent !== 'Download/CoolRead') {
+                          candidateDirs.add(parent);
+                      }
+                  }
+              });
+
+              for (const dirPath of candidateDirs) {
+                  const cleanDirPath = dirPath.replace(/^\/+/, '');
+                  for (const dir of directoriesToCheck) {
+                      await Filesystem.rmdir({ path: cleanDirPath, directory: dir, recursive: true }).catch(() => {});
+                      await Filesystem.rmdir({ path: dirPath, directory: dir, recursive: true }).catch(() => {});
+                  }
+              }
+          } catch (e) {
+              console.error("Failed to delete physical files on native storage", e);
+          }
+      }
+
+      // 6. Remove book metadata, progress history, and bookmarks
       try {
-          await deleteBookHistory(bookId);
+          await deleteBookHistory(bookId, targetTitle);
       } catch (e) {
           console.error("Failed to delete book history and metadata", e);
       }
@@ -967,28 +1077,40 @@ export function useLibrary({
       try {
           const keysToRemove = [
               `cool_read_bookmarks_${bookId}`,
-              bookToDelete?.title ? `cool_read_bookmarks_${bookToDelete.title}` : null
+              targetTitle ? `cool_read_bookmarks_${targetTitle}` : null
           ].filter(Boolean) as string[];
 
           for (const key of keysToRemove) {
               if (isNative) {
                   await Preferences.remove({ key }).catch(() => {});
-              } else {
-                  localStorage.removeItem(key);
               }
+              localStorage.removeItem(key);
           }
       } catch (e) {
           console.warn("Failed to delete book bookmarks", e);
       }
 
-      // 4. Delete from IndexedDB persistence and memory books state
+      // 7. Delete from IndexedDB persistence (and clean duplicate/aliased records)
       try {
-          await deleteBookFromDB(bookId);
+          await deleteBookFromDB(bookId, targetTitle);
       } catch (e) {
           console.error("Failed to delete book from IndexedDB", e);
       }
       
-      setBooks(prev => prev.filter(b => b.id !== bookId));
+      // 8. Nullify heavy references to allow JS Garbage Collection of Blobs and binary buffers
+      if (bookToDelete) {
+          bookToDelete.file = undefined as any;
+          bookToDelete.coverFile = undefined as any;
+          bookToDelete.archiveFiles = undefined as any;
+          bookToDelete.chapters?.forEach(ch => {
+              ch.file = undefined as any;
+              ch.content = '';
+              ch.url = '';
+          });
+      }
+
+      // 9. Remove from library state
+      setBooks(prev => prev.filter(b => b.id !== bookId && (!targetTitle || b.title !== targetTitle)));
   };
 
   // --- Filesystem Scanning (Native) ---
@@ -1220,6 +1342,11 @@ export function useLibrary({
         // Always load manually added books from IndexedDB first, filtering out any deleted books
         const rawPersistentBooks = await getAllPersistentBooks();
         const persistentBooks = (rawPersistentBooks || []).filter(b => b && b.id && !currentDeletedIds.includes(b.id));
+        
+        // Purge any lingering deleted books from IndexedDB to permanently reclaim storage space
+        if (currentDeletedIds.length > 0) {
+          purgeDeletedBooksFromDB(currentDeletedIds).catch(() => {});
+        }
         let hydratedPersistent: Book[] = [];
         
         // Ensure metadata map is available for hydration

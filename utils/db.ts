@@ -33,7 +33,7 @@ export const saveBookToDB = async (book: any) => {
         const deletedStr = localStorage.getItem('cool_read_deleted');
         if (deletedStr) {
           const deletedIds: string[] = JSON.parse(deletedStr);
-          if (deletedIds.includes(book.id)) {
+          if (deletedIds.includes(book.id) || (book.title && deletedIds.includes(book.title))) {
             return;
           }
         }
@@ -63,17 +63,79 @@ export const saveBookToDB = async (book: any) => {
   }
 };
 
-export const deleteBookFromDB = async (id: string): Promise<void> => {
+export const deleteBookFromDB = async (id: string, title?: string): Promise<void> => {
   try {
     const db = await initDB();
     return new Promise<void>((resolve, reject) => {
       const tx = db.transaction(BOOKS_STORE, 'readwrite');
-      tx.objectStore(BOOKS_STORE).delete(id);
+      const store = tx.objectStore(BOOKS_STORE);
+      
+      // Delete primary record
+      store.delete(id);
+
+      // Also clean up any lingering duplicate/aliased records matching this ID, path or title
+      const cleanTitle = title?.trim().toLowerCase();
+      const normId = id.replace(/^\/+/, '');
+      const req = store.openCursor();
+      req.onsuccess = (e) => {
+        const cursor = (e.target as IDBRequest).result as IDBCursorWithValue | null;
+        if (cursor) {
+          const val = cursor.value;
+          if (val) {
+            const valNormId = typeof val.id === 'string' ? val.id.replace(/^\/+/, '') : '';
+            const valCleanTitle = typeof val.title === 'string' ? val.title.trim().toLowerCase() : '';
+            const isMatch = val.id === id || 
+              (valNormId && valNormId === normId) ||
+              (cleanTitle && valCleanTitle && valCleanTitle === cleanTitle);
+            if (isMatch) {
+              cursor.delete();
+            }
+          }
+          cursor.continue();
+        }
+      };
+
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
   } catch (e) {
     console.error("Error deleting book from DB:", e);
+  }
+};
+
+export const purgeDeletedBooksFromDB = async (deletedIds: string[]): Promise<void> => {
+  if (!deletedIds || deletedIds.length === 0) return;
+  try {
+    const lowerDeleted = deletedIds.map(d => typeof d === 'string' ? d.trim().toLowerCase() : '');
+    const normDeleted = deletedIds.map(d => typeof d === 'string' ? d.replace(/^\/+/, '') : '');
+
+    const db = await initDB();
+    return new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(BOOKS_STORE, 'readwrite');
+      const store = tx.objectStore(BOOKS_STORE);
+      const req = store.openCursor();
+      req.onsuccess = (e) => {
+        const cursor = (e.target as IDBRequest).result as IDBCursorWithValue | null;
+        if (cursor) {
+          const val = cursor.value;
+          if (val) {
+            const valNormId = typeof val.id === 'string' ? val.id.replace(/^\/+/, '') : '';
+            const valCleanTitle = typeof val.title === 'string' ? val.title.trim().toLowerCase() : '';
+            const isDel = deletedIds.includes(val.id) || 
+              (valNormId && normDeleted.includes(valNormId)) ||
+              (valCleanTitle && lowerDeleted.includes(valCleanTitle));
+            if (isDel) {
+              cursor.delete();
+            }
+          }
+          cursor.continue();
+        }
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (e) {
+    console.error("Error purging deleted books from DB:", e);
   }
 };
 

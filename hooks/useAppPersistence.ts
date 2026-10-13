@@ -299,6 +299,8 @@ export function useAppPersistence({
   // --- Background Metadata Scanner (Audio only) ---
   useEffect(() => {
     if (!currentBook || mode !== 'audio') return;
+    const isEmbedded = currentBook.chapters.some(c => c.startTime !== undefined && c.startTime > 0);
+    if (isEmbedded) return; // Embedded chapters share one physical file; scan is only for discrete files
 
     const chaptersNeedingScan = currentBook.chapters
         .map((ch, idx) => ({ ...ch, originalIndex: idx }))
@@ -587,6 +589,16 @@ export function useAppPersistence({
         bookToPlay = { ...book, chapters: updatedChapters };
         setBooks(prev => prev.map(b => b.id === book.id ? bookToPlay : b));
       } catch (e) { console.error("URL Resolve fail", e); }
+    } else if (book.type === 'audio' && book.chapters.length > 0 && book.chapters.some(ch => ch.file instanceof Blob)) {
+      const needsFreshUrls = !book._sessionActive || book.chapters.some(ch => !ch.url || !ch.url.startsWith('blob:'));
+      if (needsFreshUrls) {
+        const rehydratedChapters = book.chapters.map(ch => ({
+          ...ch,
+          url: ch.file instanceof Blob ? URL.createObjectURL(ch.file) : ch.url
+        }));
+        bookToPlay = { ...bookToPlay, chapters: rehydratedChapters, _sessionActive: true };
+        setBooks(prev => prev.map(b => b.id === book.id ? bookToPlay : b));
+      }
     }
     
     const mapToUse = historyOverride || bookProgressMap;

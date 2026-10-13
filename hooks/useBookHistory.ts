@@ -182,10 +182,11 @@ export function useBookHistory() {
     });
   }, [isNative]);
 
-  const deleteBookHistory = useCallback(async (bookId: string) => {
+  const deleteBookHistory = useCallback(async (bookId: string, title?: string) => {
     setBookProgressMap(prev => {
       const newMap = { ...prev };
       delete newMap[bookId];
+      if (title) delete newMap[title];
       const saveStr = JSON.stringify(newMap);
       try {
         if (isNative) {
@@ -202,6 +203,7 @@ export function useBookHistory() {
     setBookMetadataMap(prev => {
       const newMeta = { ...prev };
       delete newMeta[bookId];
+      if (title) delete newMeta[title];
       const saveStr = JSON.stringify(newMeta);
       try {
         if (isNative) {

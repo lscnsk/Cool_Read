@@ -86,17 +86,58 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
 
   // Calculate remaining time for the entire book adjusted by speed
   const calculateRemainingTime = () => {
-    if (!currentBook) return "00:00";
+    if (!currentBook || !currentBook.chapters || currentBook.chapters.length === 0) return "00:00";
     
-    // Remaining time in current chapter
-    const remainingCurrent = Math.max(0, duration - currentTime);
+    // Calculate average chapter duration from known chapters to estimate any chapters missing duration
+    let knownDurSum = 0;
+    let knownDurCount = 0;
+    currentBook.chapters.forEach((ch, idx) => {
+        let d = ch.duration || 0;
+        if (!d && ch.endTime !== undefined && ch.startTime !== undefined && ch.endTime > ch.startTime) {
+            d = ch.endTime - ch.startTime;
+        } else if (!d && idx === currentBook.chapters.length - 1 && ch.startTime !== undefined && (globalDuration || 0) > ch.startTime) {
+            d = (globalDuration || 0) - ch.startTime;
+        }
+        if (idx === currentChapterIndex && duration > 0) {
+            d = Math.max(d, duration);
+        }
+        if (d > 0) {
+            knownDurSum += d;
+            knownDurCount++;
+        }
+    });
+
+    const avgChDuration = knownDurCount > 0 ? (knownDurSum / knownDurCount) : (duration > 0 ? duration : 1800);
     
-    // Sum duration of future chapters (if known)
+    // Remaining time in current chapter (always positive, handles last chapter reliably)
+    const curCh = currentBook.chapters[currentChapterIndex];
+    let curChDuration = duration > 0 ? duration : (curCh?.duration || 0);
+    if (!curChDuration && curCh?.endTime !== undefined && curCh?.startTime !== undefined && curCh.endTime > curCh.startTime) {
+        curChDuration = curCh.endTime - curCh.startTime;
+    } else if (!curChDuration && currentChapterIndex === currentBook.chapters.length - 1 && curCh?.startTime !== undefined && (globalDuration || 0) > curCh.startTime) {
+        curChDuration = (globalDuration || 0) - curCh.startTime;
+    }
+    if (!curChDuration || curChDuration <= 0) {
+        curChDuration = avgChDuration;
+    }
+    const remainingCurrent = Math.max(0, curChDuration - currentTime);
+
+    // Sum duration of future chapters (including the very last chapter!)
     let remainingFuture = 0;
-    if (currentBook.chapters) {
-        for (let i = currentChapterIndex + 1; i < currentBook.chapters.length; i++) {
-            // Use metadata duration if available, else 0
-            remainingFuture += (currentBook.chapters[i].duration || 0);
+    for (let i = currentChapterIndex + 1; i < currentBook.chapters.length; i++) {
+        const ch = currentBook.chapters[i];
+        let chDur = ch.duration || 0;
+        if (!chDur && ch.endTime !== undefined && ch.startTime !== undefined && ch.endTime > ch.startTime) {
+            chDur = ch.endTime - ch.startTime;
+        } else if (!chDur && i === currentBook.chapters.length - 1 && ch.startTime !== undefined && (globalDuration || 0) > ch.startTime) {
+            chDur = (globalDuration || 0) - ch.startTime;
+        }
+        
+        if (chDur > 0) {
+            remainingFuture += chDur;
+        } else {
+            // If duration not yet known, use average so the last chapter is NEVER omitted!
+            remainingFuture += avgChDuration;
         }
     }
 
@@ -108,6 +149,7 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
     const totalRemainingRealTime = (remainingCurrent + remainingFuture) / effectiveRate;
     return formatTime(totalRemainingRealTime);
   };
+
 
   const accentColor = isMarcel ? '#544372' : isBimbo ? '#BE123C' : isSurf ? '#0ea5e9' : '#fffff0';
   const trackBg = isMarcel ? '#C4B5E6' : isBimbo ? '#FBCFE8' : isSurf ? '#e0f2fe' : '#333';

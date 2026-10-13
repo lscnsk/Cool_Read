@@ -34,15 +34,19 @@ export const calculateTotalProgress = (
     let knownCount = 0;
     
     for (const ch of chapters) {
-        if (ch.duration && ch.duration > 0) {
-            knownDuration += ch.duration;
+        let dur = ch.duration || 0;
+        if (!dur && ch.endTime !== undefined && ch.startTime !== undefined && ch.endTime > ch.startTime) {
+            dur = ch.endTime - ch.startTime;
+        }
+        if (dur > 0) {
+            knownDuration += dur;
             knownCount++;
         }
     }
 
     // Estimate total duration
     // If we have some known durations, use average for unknown
-    // If all are unknown, we'll use a virtual duration of 1.0 per chapter
+    // If all are unknown, we'll use a virtual duration of 1800s per chapter
     const avgDuration = knownCount > 0 ? knownDuration / knownCount : (currentMax > 0 ? currentMax : 1800);
     
     let totalDuration = 0;
@@ -50,6 +54,9 @@ export const calculateTotalProgress = (
 
     for (let i = 0; i < chapters.length; i++) {
         let dur = chapters[i].duration || 0;
+        if (!dur && chapters[i].endTime !== undefined && chapters[i].startTime !== undefined && chapters[i].endTime! > chapters[i].startTime!) {
+            dur = chapters[i].endTime! - chapters[i].startTime!;
+        }
         
         if (i === currentChapterIndex) {
             // Use the live currentMax for the active chapter

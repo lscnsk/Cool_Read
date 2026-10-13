@@ -487,63 +487,109 @@ function App() {
 
   const lastBumpedTimeRef = useRef<number>(0);
   const lastAdvancedChapterRef = useRef<number | null>(null);
+  const isAutoAdvancingRef = useRef<boolean>(false);
+
+  // Synchronize detected audio duration into book chapters and ensure last chapter has duration
+  useEffect(() => {
+    if (mode === 'audio' && currentBook && duration > 0) {
+      const activeCh = currentBook.chapters[currentChapterIndex];
+      const isEmbedded = currentBook.chapters.some(c => c.startTime !== undefined && c.startTime > 0);
+      
+      let needsUpdate = false;
+      const newChapters = [...currentBook.chapters];
+      
+      if (isEmbedded && audioRef.current && audioRef.current.duration > 0) {
+        const fileDur = audioRef.current.duration;
+        const lastIdx = newChapters.length - 1;
+        if (newChapters[lastIdx] && (!newChapters[lastIdx].duration || !newChapters[lastIdx].endTime)) {
+          const start = newChapters[lastIdx].startTime || 0;
+          newChapters[lastIdx] = {
+            ...newChapters[lastIdx],
+            endTime: fileDur,
+            duration: Math.max(0, fileDur - start)
+          };
+          needsUpdate = true;
+        }
+      }
+
+      if (activeCh && (!activeCh.duration || Math.abs(activeCh.duration - duration) > 1)) {
+        newChapters[currentChapterIndex] = {
+          ...newChapters[currentChapterIndex],
+          duration: duration,
+          endTime: (newChapters[currentChapterIndex].startTime || 0) + duration
+        };
+        needsUpdate = true;
+      }
+
+      if (needsUpdate) {
+        setCurrentBook(prev => prev ? { ...prev, chapters: newChapters } : prev);
+        setBooks(prev => prev.map(b => b.id === currentBook.id ? { ...b, chapters: newChapters } : b));
+      }
+    }
+  }, [duration, currentChapterIndex, currentBook?.id, mode]);
 
   // Handle Track Auto-Next
   useEffect(() => {
     const audio = audioRef.current;
     
-    // Existing onEnded listener for independent files (when audio reaches physical EOF)
+    // onEnded listener for independent audio files (when audio reaches physical EOF)
     const onEnded = () => {
          if (mode === 'audio' && currentBook && currentChapterIndex < currentBook.chapters.length - 1) {
             const now = Date.now();
-            if (lastAdvancedChapterRef.current === currentChapterIndex || now - lastBumpedTimeRef.current < 2000) {
+            if (lastAdvancedChapterRef.current === currentChapterIndex || now - lastBumpedTimeRef.current < 1500 || isAutoAdvancingRef.current) {
                return;
             }
             lastAdvancedChapterRef.current = currentChapterIndex;
             lastBumpedTimeRef.current = now;
+            isAutoAdvancingRef.current = true;
 
-            const nextCh = currentBook.chapters[currentChapterIndex + 1];
-            setCurrentChapterIndex(p => p + 1);
+            const nextIndex = currentChapterIndex + 1;
+            const nextCh = currentBook.chapters[nextIndex];
+            setCurrentChapterIndex(nextIndex);
             setCurrentTime(0);
             if (audioRef.current && nextCh.startTime !== undefined) {
                audioRef.current.currentTime = nextCh.startTime;
             }
-            // Force play after a tick to let React render and hook source change
             setTimeout(() => {
-               setIsPlaying(true);
-               if (audioRef.current && audioRef.current.paused) {
-                   audioRef.current.play().catch(e => console.warn(e));
-               }
-            }, 50);
-        } else {
+               isAutoAdvancingRef.current = false;
+            }, 1000);
+        } else if (mode === 'audio' && currentBook && currentChapterIndex >= currentBook.chapters.length - 1) {
             setIsPlaying(false);
         }
     };
     
-    // Virtual end listener for embedded chapters sharing the same physical file
+    // Virtual end listener strictly for embedded chapters sharing the same physical file
     const onTimeUpdate = () => {
-       if (mode !== 'audio' || !currentBook) return;
-       const ch = currentBook.chapters[currentChapterIndex];
-       if (!ch) return;
-       
-       const now = Date.now();
-       if (lastAdvancedChapterRef.current === currentChapterIndex || now - lastBumpedTimeRef.current < 2000) return;
+       if (mode !== 'audio' || !currentBook || isAutoAdvancingRef.current) return;
+       const isEmbedded = currentBook.chapters.some(c => c.startTime !== undefined && c.startTime > 0);
+       if (!isEmbedded) return; // Multi-file books rely solely on native onEnded!
 
-       if (ch.endTime && audio.currentTime >= ch.endTime) {
+       const ch = currentBook.chapters[currentChapterIndex];
+       if (!ch || ch.endTime === undefined) return;
+       
+       const chStart = ch.startTime || 0;
+       // Only trigger when currentTime is genuinely within this chapter's bounds
+       if (audio.currentTime < chStart || audio.currentTime > ch.endTime + 2.0) return;
+
+       if (audio.currentTime >= ch.endTime - 0.25) {
+           const now = Date.now();
+           if (lastAdvancedChapterRef.current === currentChapterIndex || now - lastBumpedTimeRef.current < 1500) return;
+
            if (currentChapterIndex < currentBook.chapters.length - 1) {
               lastAdvancedChapterRef.current = currentChapterIndex;
               lastBumpedTimeRef.current = now;
-              const nextCh = currentBook.chapters[currentChapterIndex + 1];
-              setCurrentChapterIndex(p => p + 1);
-              if (nextCh.startTime !== undefined && Math.abs(audio.currentTime - nextCh.startTime) > 1.0) {
+              isAutoAdvancingRef.current = true;
+
+              const nextIndex = currentChapterIndex + 1;
+              const nextCh = currentBook.chapters[nextIndex];
+              setCurrentChapterIndex(nextIndex);
+              if (nextCh.startTime !== undefined) {
                   audio.currentTime = nextCh.startTime;
               }
               setCurrentTime(0);
-              // Force play
-              setIsPlaying(true);
-              if (audio.paused) {
-                  audio.play().catch(e => console.warn(e));
-              }
+              setTimeout(() => {
+                  isAutoAdvancingRef.current = false;
+              }, 1000);
            } else {
               // End of the book
               setIsPlaying(false);
@@ -559,6 +605,7 @@ function App() {
        audio.removeEventListener('timeupdate', onTimeUpdate);
     }
   }, [currentBook, currentChapterIndex, mode]);
+
 
 
   // --- Render ---
@@ -646,23 +693,31 @@ function App() {
             isAudio={mode === 'audio'}
             onSelectChapter={(i) => { 
                 setNavStack(prev => [...prev, { chapterIndex: currentChapterIndex, progress: readerProgress }]);
-                setCurrentChapterIndex(i); 
                 if (mode === 'audio') {
-                    const baseTime = currentBook.chapters[i]?.startTime || 0;
-                    setCurrentTime(0);
-                    audioRef.current.currentTime = baseTime;
-                    audioRef.current.pause();
                     setIsPlaying(false);
+                    if (audioRef.current) {
+                        audioRef.current.pause();
+                    }
+                    setCurrentTime(0);
                 } else {
                     setReaderProgress(0); 
                     setIsImmersive(false);
                 }
+                setCurrentChapterIndex(i); 
             }}
             isOpen={isChapterListOpen}
             onClose={() => setIsChapterListOpen(false)}
             onSearchResultClick={(idx, text, matchIndex) => {
                 setNavStack(prev => [...prev, { chapterIndex: currentChapterIndex, progress: readerProgress }]);
-                setReaderProgress(0); 
+                if (mode === 'audio') {
+                    setIsPlaying(false);
+                    if (audioRef.current) {
+                        audioRef.current.pause();
+                    }
+                    setCurrentTime(0);
+                } else {
+                    setReaderProgress(0); 
+                }
                 setCurrentChapterIndex(idx);
                 setHighlightText(text);
                 setHighlightMatchIndex(matchIndex);
@@ -857,8 +912,18 @@ function App() {
                                 currentBook={currentBook}
                                 currentChapterIndex={currentChapterIndex}
                                 appStyle={appStyle}
-                                globalCurrentTime={currentBook.chapters.some(ch => ch.startTime !== undefined) ? currentTime : ((currentBook.chapters[currentChapterIndex]?.startTime || 0) + currentTime)}
-                                globalDuration={currentBook.chapters.reduce((acc, ch) => acc + (ch.duration || 0), 0) || duration}
+                                globalCurrentTime={currentBook.chapters.some(ch => ch.startTime !== undefined && ch.startTime > 0) ? currentTime : ((currentBook.chapters[currentChapterIndex]?.startTime || 0) + currentTime)}
+                                globalDuration={(() => {
+                                    const isEmb = currentBook.chapters.some(ch => ch.startTime !== undefined && ch.startTime > 0);
+                                    if (isEmb) {
+                                        return audioRef.current?.duration || currentBook.chapters[currentBook.chapters.length - 1]?.endTime || duration;
+                                    }
+                                    return currentBook.chapters.reduce((acc, ch, idx) => {
+                                        let d = ch.duration || 0;
+                                        if (idx === currentChapterIndex && duration > 0) d = Math.max(d, duration);
+                                        return acc + (d > 0 ? d : (duration > 0 ? duration : 1800));
+                                    }, 0);
+                                })()}
                                 onGlobalSeek={(targetGlobalTime) => {
                                     const isEmbeddedCh = currentBook.chapters.some(ch => ch.startTime !== undefined);
                                     
