@@ -5,6 +5,7 @@ export interface RsvpWord {
     node: Node;
     isParagraphStart?: boolean;
     footnote?: string;
+    footnoteIsItalic?: boolean;
 }
 
 interface UseRsvpProps {
@@ -119,8 +120,12 @@ export function useRsvp({
 
              // Check if this token is a footnote reference marker
              if (isFootnoteToken(cleanWord, n)) {
+                 const isItalic = Boolean(n.parentElement?.closest('em, i, .footnote-italic') || (words.length > 0 && words[words.length - 1].node.parentElement?.closest('em, i, .footnote-italic')));
                  if (words.length > 0) {
                      words[words.length - 1].footnote = (words[words.length - 1].footnote ? words[words.length - 1].footnote + ' ' : '') + cleanWord;
+                     if (isItalic) {
+                         words[words.length - 1].footnoteIsItalic = true;
+                     }
                  } else {
                      pendingFootnote = (pendingFootnote ? pendingFootnote + ' ' : '') + cleanWord;
                  }
@@ -152,8 +157,12 @@ export function useRsvp({
                      }
                  }
                  if (inlineFn) {
+                     const isItalic = Boolean(n.parentElement?.closest('em, i, .footnote-italic'));
                      if (words.length > 0) {
                          words[words.length - 1].footnote = (words[words.length - 1].footnote ? words[words.length - 1].footnote + ' ' : '') + inlineFn;
+                         if (isItalic) {
+                             words[words.length - 1].footnoteIsItalic = true;
+                         }
                      } else {
                          pendingFootnote = (pendingFootnote ? pendingFootnote + ' ' : '') + inlineFn;
                      }

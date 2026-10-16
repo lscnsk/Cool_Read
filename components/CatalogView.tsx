@@ -140,14 +140,14 @@ export const CatalogView: React.FC<CatalogViewProps> = React.memo(({
         return maxW;
       };
 
-      const candidates = ['0.006em', '0.012em', '0.018em', '0.024em', '0.030em', '0.000em', '-0.006em', '-0.012em', '-0.018em'];
+      const candidates = ['0.006em', '0.012em', '0.018em', '0.024em', '0.030em', '0.000em', '-0.003em', '-0.006em'];
 
       visibleParagraphs.forEach((p) => {
         p.style.removeProperty('letter-spacing');
         const initialMax = getMaxSpaceInParagraph(p);
         const computedFs = parseFloat(window.getComputedStyle(p).fontSize) || 16;
-        const wordSpaceThreshold = Math.max(2.8, computedFs * 0.12);
-        const targetWordSpace = Math.max(2.2, computedFs * 0.10);
+        const wordSpaceThreshold = Math.max(3.6, computedFs * 0.18);
+        const targetWordSpace = Math.max(3.0, computedFs * 0.15);
 
         if (initialMax > wordSpaceThreshold) {
           let bestLs = '0em';

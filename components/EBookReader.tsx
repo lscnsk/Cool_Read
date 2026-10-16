@@ -20,6 +20,8 @@ function shouldSkipBionic(node: Node): boolean {
       name === 'svg' || 
       name === 'b' || 
       name === 'strong' ||
+      name === 'sup' ||
+      name === 'sub' ||
       name === 'h1' ||
       name === 'h2' ||
       name === 'h3' ||
@@ -34,7 +36,11 @@ function shouldSkipBionic(node: Node): boolean {
       ((parent as Element).classList.contains('dash-word-lead') ||
        (parent as Element).classList.contains('dash-fixed') ||
        (parent as Element).classList.contains('dash-space') ||
-       (parent as Element).classList.contains('punct-tight'))
+       (parent as Element).classList.contains('punct-tight') ||
+       (parent as Element).classList.contains('footnote-italic') ||
+       (parent as Element).classList.contains('note-link') ||
+       (parent as Element).classList.contains('note-back-link') ||
+       (parent as Element).classList.contains('note-entry'))
     ) {
       return true;
     }
@@ -236,6 +242,165 @@ function transformChapterContent(
           const punctText = match[1];
           next.nodeValue = next.nodeValue.slice(punctText.length);
           el.appendChild(doc.createTextNode(punctText));
+        }
+      }
+    });
+  } catch (e) {}
+
+  // 1.6. Italicize footnote numbers in square brackets (e.g. [1], [*]) adjacent to or inside italic elements (em, i)
+  try {
+    const isFootnoteElement = (node: Node | null): boolean => {
+      if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
+      const el = node as HTMLElement;
+      const tag = el.tagName.toLowerCase();
+      
+      if (tag === 'sup' || tag === 'sub') return true;
+      if (el.querySelector('sup') || el.closest('sup')) return true;
+
+      if (tag === 'a') {
+        const href = el.getAttribute('href') || el.getAttribute('l:href') || el.getAttribute('xlink:href') || '';
+        const id = el.getAttribute('id') || '';
+        const epubType = el.getAttribute('epub:type') || '';
+        const role = el.getAttribute('role') || '';
+        const type = el.getAttribute('type') || '';
+        
+        if (epubType === 'noteref' || role === 'doc-noteref' || type === 'note') return true;
+        if (/#(?:note|fn|ref|footnote|cite)/i.test(href)) return true;
+        if (/^(?:ref|note|fn)/i.test(id)) return true;
+        if (el.classList.contains('note-link') || el.classList.contains('noteref') || el.classList.contains('footnote')) return true;
+      }
+      
+      if (el.classList.contains('footnote') || el.classList.contains('note-ref') || el.classList.contains('noteref')) return true;
+
+      const text = (el.textContent || '').trim();
+      if (/^\[[\s\d\*\u0400-\u04ff\w\.\-–—]+\]$/iu.test(text)) {
+        return true;
+      }
+      if (tag === 'a' && (/^\d+$/.test(text) || /^\*+$/.test(text))) {
+        return true;
+      }
+
+      return false;
+    };
+
+    const makeFootnoteItalic = (elem: HTMLElement) => {
+      elem.classList.add('footnote-italic');
+      elem.style.setProperty('font-style', 'italic', 'important');
+      
+      const children = elem.querySelectorAll('*');
+      children.forEach(ch => {
+        (ch as HTMLElement).classList.add('footnote-italic');
+        (ch as HTMLElement).style.setProperty('font-style', 'italic', 'important');
+      });
+
+      const walker = doc.createTreeWalker(elem, NodeFilter.SHOW_TEXT, null);
+      const textNodes: Text[] = [];
+      let tNode: Node | null;
+      while (tNode = walker.nextNode()) {
+        if (tNode.nodeValue && tNode.nodeValue.trim()) {
+          if (!tNode.parentElement?.closest('em, i')) {
+            textNodes.push(tNode as Text);
+          }
+        }
+      }
+      for (const tn of textNodes) {
+        const emWrapper = doc.createElement('em');
+        emWrapper.className = 'footnote-italic';
+        emWrapper.setAttribute('style', 'font-style: italic !important;');
+        emWrapper.textContent = tn.nodeValue;
+        tn.parentNode?.replaceChild(emWrapper, tn);
+      }
+    };
+
+    const fnBracketRegex = /^([\s\u00A0\u202F]*(?:[,;:.]\s*)?)(\[(?:\*+|\d+|[a-zа-яёivxlcdm]+|\d+[-–—\.\s]*\d*|\d+[а-яёa-z]?|(?:прим|комм|сноска|ред|автор|note)\.?\s*\d*)\])/iu;
+    const prevFnBracketRegex = /(\[(?:\*+|\d+|[a-zа-яёivxlcdm]+|\d+[-–—\.\s]*\d*|\d+[а-яёa-z]?|(?:прим|комм|сноска|ред|автор|note)\.?\s*\d*)\])([\s\u00A0\u202F]*(?:[,;:.]\s*)?)$/iu;
+
+    const italicElements = Array.from(doc.querySelectorAll('em, i, .italic, [style*="font-style: italic"], [style*="font-style:italic"]'));
+    italicElements.forEach(el => {
+      // 1. Check footnotes inside this italic element
+      const innerFootnotes = el.querySelectorAll('a, sup, span');
+      innerFootnotes.forEach(inner => {
+        if (isFootnoteElement(inner)) {
+          makeFootnoteItalic(inner as HTMLElement);
+        }
+      });
+
+      // 2. Check footnotes following this italic element (next siblings)
+      let next = el.nextSibling;
+      while (next) {
+        if (next.nodeType === Node.TEXT_NODE) {
+          const text = next.nodeValue || '';
+          const match = text.match(fnBracketRegex);
+          if (match) {
+            const sep = match[1];
+            const fnText = match[2];
+            next.nodeValue = text.slice(match[0].length);
+            const parent = next.parentNode;
+            if (sep) {
+              parent?.insertBefore(doc.createTextNode(sep), next);
+            }
+            const fnEm = doc.createElement('em');
+            fnEm.className = 'footnote-italic';
+            fnEm.setAttribute('style', 'font-style: italic !important;');
+            fnEm.textContent = fnText;
+            parent?.insertBefore(fnEm, next);
+            continue;
+          } else if (!text.trim() && next.nextSibling && isFootnoteElement(next.nextSibling)) {
+            next = next.nextSibling;
+            continue;
+          } else {
+            break;
+          }
+        } else if (next.nodeType === Node.ELEMENT_NODE) {
+          if (isFootnoteElement(next)) {
+            makeFootnoteItalic(next as HTMLElement);
+            next = next.nextSibling;
+            continue;
+          } else {
+            break;
+          }
+        } else {
+          break;
+        }
+      }
+
+      // 3. Check footnotes preceding this italic element (previous siblings)
+      let prev = el.previousSibling;
+      while (prev) {
+        if (prev.nodeType === Node.TEXT_NODE) {
+          const text = prev.nodeValue || '';
+          const match = text.match(prevFnBracketRegex);
+          if (match) {
+            const fnText = match[1];
+            const sep = match[2];
+            prev.nodeValue = text.slice(0, -match[0].length);
+            const parent = prev.parentNode;
+            const fnEm = doc.createElement('em');
+            fnEm.className = 'footnote-italic';
+            fnEm.setAttribute('style', 'font-style: italic !important;');
+            fnEm.textContent = fnText;
+            const nextNode = prev.nextSibling;
+            parent?.insertBefore(fnEm, nextNode);
+            if (sep) {
+              parent?.insertBefore(doc.createTextNode(sep), nextNode);
+            }
+            continue;
+          } else if (!text.trim() && prev.previousSibling && isFootnoteElement(prev.previousSibling)) {
+            prev = prev.previousSibling;
+            continue;
+          } else {
+            break;
+          }
+        } else if (prev.nodeType === Node.ELEMENT_NODE) {
+          if (isFootnoteElement(prev)) {
+            makeFootnoteItalic(prev as HTMLElement);
+            prev = prev.previousSibling;
+            continue;
+          } else {
+            break;
+          }
+        } else {
+          break;
         }
       }
     });
@@ -1375,18 +1540,14 @@ const EBookReader: React.FC<EBookReaderProps> = ({
     };
 
     // Adaptive auto-compensator: applies the MINIMUM necessary compression (wdth & micro-tracking)
-    // to pull trailing words/syllables onto underfilled lines, eliminating large gaps without visible distortion.
+    // with a raised lower threshold to ensure letters and words never clump or look overly cramped.
     const candidates = [
-      { ls: '-0.003em', stretch: '99%', wdth: 99 },
-      { ls: '-0.006em', stretch: '98%', wdth: 98 },
-      { ls: '-0.010em', stretch: '97%', wdth: 97 },
-      { ls: '-0.014em', stretch: '96%', wdth: 96 },
-      { ls: '-0.018em', stretch: '95%', wdth: 95 },
-      { ls: '-0.024em', stretch: '94%', wdth: 94 },
-      { ls: '-0.030em', stretch: '92%', wdth: 92 },
-      { ls: '-0.038em', stretch: '90%', wdth: 90 },
-      { ls: '-0.046em', stretch: '88%', wdth: 88 },
-      { ls: '-0.055em', stretch: '85%', wdth: 85 },
+      { ls: '-0.002em', stretch: '99.5%', wdth: 99.5 },
+      { ls: '-0.004em', stretch: '99%', wdth: 99 },
+      { ls: '-0.007em', stretch: '98.5%', wdth: 98.5 },
+      { ls: '-0.010em', stretch: '98%', wdth: 98 },
+      { ls: '-0.014em', stretch: '97%', wdth: 97 },
+      { ls: '-0.018em', stretch: '96%', wdth: 96 },
     ];
 
     elements.forEach((p) => {
@@ -1405,10 +1566,10 @@ const EBookReader: React.FC<EBookReaderProps> = ({
       const initialMax = getMaxSpaceInElement(p);
       const computedFs = parseFloat(window.getComputedStyle(p).fontSize) || (fontSize * 16) || 18;
       
-      // Thresholds: ideal justified space width is ~0.24-0.28em.
-      // Spaces exceeding ~0.30em start creating noticeable gaps ("дыры").
-      const wordSpaceThreshold = Math.max(4.8, computedFs * 0.30);
-      const targetWordSpace = Math.max(4.0, computedFs * 0.25);
+      // Thresholds: ideal justified space width is ~0.26-0.30em.
+      // Spaces exceeding ~0.34em start creating noticeable gaps ("дыры").
+      const wordSpaceThreshold = Math.max(5.4, computedFs * 0.34);
+      const targetWordSpace = Math.max(4.6, computedFs * 0.28);
 
       if (initialMax > wordSpaceThreshold) {
         let bestCand: typeof candidates[0] | null = null;
@@ -3087,7 +3248,7 @@ const EBookReader: React.FC<EBookReaderProps> = ({
                                                     {renderPart(right)}
                                                     {trailing && <span className={punctColorClass}>{trailing}</span>}
                                                     {itemFootnote && (
-                                                        <sup className={`text-[0.68em] align-super ml-0.5 font-normal ${punctColorClass}`}>
+                                                        <sup className={`text-[0.68em] align-super ml-0.5 font-normal ${punctColorClass} ${item.footnoteIsItalic ? 'italic' : ''}`}>
                                                             {itemFootnote}
                                                         </sup>
                                                     )}
@@ -3241,8 +3402,8 @@ const EBookReader: React.FC<EBookReaderProps> = ({
           .reader-content {
              text-align: justify !important;
              text-justify: auto !important;
-             word-spacing: -0.028em !important;
-             letter-spacing: -0.005em;
+             word-spacing: -0.006em !important;
+             letter-spacing: 0 !important;
              font-kerning: normal !important;
              font-feature-settings: "kern" 1, "liga" 1, "calt" 1, "locl" 1 !important;
              text-rendering: optimizeLegibility !important;
@@ -3256,8 +3417,8 @@ const EBookReader: React.FC<EBookReaderProps> = ({
           }
 
           .reader-content p {
-             word-spacing: -0.028em !important;
-             letter-spacing: -0.005em;
+             word-spacing: -0.006em !important;
+             letter-spacing: 0 !important;
              font-kerning: normal !important;
              font-feature-settings: "kern" 1, "liga" 1, "calt" 1, "locl" 1 !important;
              font-variant-numeric: normal !important;
@@ -3363,7 +3524,14 @@ const EBookReader: React.FC<EBookReaderProps> = ({
              word-spacing: normal !important;
           }
 
-          .reader-content em, .reader-content i { 
+          .reader-content em, .reader-content i,
+          .reader-content em a, .reader-content i a,
+          .reader-content em sup, .reader-content i sup,
+          .reader-content .footnote-italic,
+          .reader-content a.footnote-italic,
+          .reader-content sup.footnote-italic,
+          .reader-content em.footnote-italic,
+          .reader-content span.footnote-italic { 
              font-style: italic !important; 
              ${appStyle === 'Bimbo' ? `color: ${theme === 'light' ? '#db2777' : '#fb7185'} !important;` : ''}
              ${appStyle === 'Final' || appStyle === 'Final Fantasy' ? `color: ${theme === 'light' ? '#b45309' : '#93c5fd'} !important;` : ''}

@@ -386,6 +386,20 @@ input[type=range]:focus { outline: none; }
   word-spacing: normal !important;
 }
 
+.reader-content em,
+.reader-content i,
+.reader-content em a,
+.reader-content i a,
+.reader-content em sup,
+.reader-content i sup,
+.reader-content .footnote-italic,
+.reader-content a.footnote-italic,
+.reader-content sup.footnote-italic,
+.reader-content em.footnote-italic,
+.reader-content span.footnote-italic {
+  font-style: italic !important;
+}
+
 /* Tables Typography & Layout: smaller font size than main body text and strictly no first-line indent */
 .reader-content table,
 .reader-content table *,
