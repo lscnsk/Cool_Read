@@ -6,7 +6,7 @@ import { Filesystem, Directory } from '@capacitor/filesystem';
 import { SplashScreen } from '@capacitor/splash-screen';
 import * as mm from 'music-metadata';
 import { Book, Chapter, AppMode, PersistedState } from '../types';
-import { getAllPersistentBooks, saveBookToDB, deleteBookFromDB, purgeDeletedBooksFromDB } from '../utils/db';
+import { getAllPersistentBooks, saveBookToDB, deleteBookFromDB, purgeDeletedBooksFromDB, unmarkBookAsDeleted } from '../utils/db';
 import { getAudioDuration } from '../utils/audio';
 import { parseM4AChapters } from '../utils/mp4chapters';
 import { parseComic, extractComicCover } from '../utils/archive';
@@ -116,9 +116,19 @@ export function useLibrary({
   const deletedBookIdsRef = useRef(deletedBookIds);
   useEffect(() => { deletedBookIdsRef.current = deletedBookIds; }, [deletedBookIds]);
 
-  const isBookDeleted = (id: string, title?: string) => {
+  const unmarkAsDeleted = async (id: string, title?: string, paths?: string[]) => {
+    const updated = unmarkBookAsDeleted(id, title, paths);
+    if (isNative) {
+      try {
+        await Preferences.set({ key: 'cool_read_deleted', value: JSON.stringify(updated) });
+      } catch (e) {}
+    }
+    setDeletedBookIds(updated);
+    deletedBookIdsRef.current = updated;
+  };
+
+  const isBookDeleted = (id: string, _title?: string) => {
     if (deletedBookIdsRef.current.includes(id)) return true;
-    if (title && deletedBookIdsRef.current.includes(title)) return true;
     try {
       const delStr = localStorage.getItem('cool_read_deleted');
       if (delStr && JSON.parse(delStr).includes(id)) return true;
@@ -645,6 +655,7 @@ export function useLibrary({
         }))
       };
 
+      await unmarkAsDeleted(finalBook.id, finalTitle, finalBook.chapters.map(c => c.path || c.name));
       setBooks(prev => [finalBook, ...prev]);
       await saveBookToDB(finalBook);
       saveMetadata(finalBook.id, finalBook.title, finalBook.author || '', finalBook.coverUrl, finalBook.format, finalBook.series);
@@ -713,6 +724,7 @@ export function useLibrary({
         chapters: initialChapters
       };
 
+      await unmarkAsDeleted(newBookId, finalTitle, comicArchiveFiles.map(f => f.name));
       setBooks(prev => [newBook, ...prev]);
       await saveBookToDB(newBook);
       saveMetadata(newBook.id, finalTitle, finalAuthor, primaryCoverUrl, 'comic', finalSeries);
@@ -792,6 +804,7 @@ export function useLibrary({
         chapters: initialChapters
       };
 
+      await unmarkAsDeleted(newBookId, finalTitle, looseImageFiles.map(f => f.name));
       setBooks(prev => [newBook, ...prev]);
       await saveBookToDB(newBook);
       saveMetadata(newBook.id, finalTitle, finalAuthor, newBook.coverUrl, 'comic', finalSeries);
@@ -882,6 +895,7 @@ export function useLibrary({
       chapters: initialChapters
     };
 
+    await unmarkAsDeleted(newBookId, finalTitle, initialChapters.map(c => c.path || c.name));
     setBooks(prev => [newBook, ...prev]);
     await saveBookToDB(newBook);
     saveMetadata(newBook.id, finalTitle, finalAuthor, newBook.coverUrl, undefined, finalSeries);
@@ -972,9 +986,8 @@ export function useLibrary({
 
       // 2. Synchronously record in deleted IDs log FIRST to immediately cancel any background workers
       const updated = Array.from(new Set([
-        ...deletedBookIds, 
-        bookId, 
-        ...(targetTitle ? [targetTitle] : [])
+        ...deletedBookIds.filter(id => id !== bookId), 
+        bookId
       ]));
       setDeletedBookIds(updated);
       deletedBookIdsRef.current = updated;
@@ -990,7 +1003,7 @@ export function useLibrary({
       }
 
       // 3. If currently playing/open, immediately stop and detach audio
-      if (currentBook?.id === bookId || (targetTitle && currentBook?.title === targetTitle)) {
+      if (currentBook?.id === bookId) {
           setIsPlaying(false);
           setCurrentBook(null);
       }
@@ -1086,8 +1099,16 @@ export function useLibrary({
               }
               localStorage.removeItem(key);
           }
+
+          const storedLast = localStorage.getItem('cool_read_last_active_book_id');
+          if (storedLast === bookId || (targetTitle && storedLast === targetTitle)) {
+              localStorage.removeItem('cool_read_last_active_book_id');
+              if (isNative) {
+                  await Preferences.remove({ key: 'cool_read_last_active_book_id' }).catch(() => {});
+              }
+          }
       } catch (e) {
-          console.warn("Failed to delete book bookmarks", e);
+          console.warn("Failed to delete book bookmarks and last active reference", e);
       }
 
       // 7. Delete from IndexedDB persistence (and clean duplicate/aliased records)
@@ -1291,18 +1312,38 @@ export function useLibrary({
         setBookProgressMap(historyMap);
      } catch(e){}
 
-     let latestId: string | null = null;
-     let maxTime = 0;
-     (Object.values(historyMap) as PersistedState[]).forEach(s => {
-         if (s.lastUpdated > maxTime) { maxTime = s.lastUpdated; latestId = s.bookId; }
-     });
+     let lastActiveId: string | null = null;
+     try {
+        const storedLastActive = isNative 
+          ? (await Preferences.get({ key: 'cool_read_last_active_book_id' })).value 
+          : localStorage.getItem('cool_read_last_active_book_id');
+        if (storedLastActive) lastActiveId = storedLastActive;
+     } catch(e){}
 
-     if (latestId) {
-         const matching = loadedBooks.find(b => b.id === latestId);
+     let targetId: string | null = lastActiveId;
+     if (!targetId) {
+       let maxTime = 0;
+       (Object.values(historyMap) as PersistedState[]).forEach(s => {
+           if (s.lastUpdated > maxTime) { maxTime = s.lastUpdated; targetId = s.bookId; }
+       });
+     }
+
+     if (targetId) {
+         let matching = loadedBooks.find(b => b.id === targetId);
+         if (!matching) {
+           matching = loadedBooks.find(b => b.title === targetId || (b.title && targetId && b.title.toLowerCase() === targetId.toLowerCase()));
+         }
          if (matching) {
              setMode(matching.type);
              await handleSelectBook(matching, historyMap);
+             return;
          }
+     }
+
+     if (loadedBooks.length > 0) {
+       const first = loadedBooks[0];
+       setMode(first.type);
+       await handleSelectBook(first, historyMap);
      }
   };
 
@@ -1370,16 +1411,24 @@ export function useLibrary({
                 ? URL.createObjectURL(book.coverFile)
                 : book.coverUrl),
               chapters: (book.chapters || []).map((ch: any) => {
+                let freshUrl = ch.url || '';
+                if (ch.file && (ch.file instanceof Blob || ch.file instanceof File)) {
+                  try {
+                    freshUrl = URL.createObjectURL(ch.file);
+                  } catch (e) {}
+                }
                 return {
                   ...ch,
-                  url: ch.url || ''
+                  url: freshUrl
                 };
               })
             };
           });
         }
 
-        if (hydratedPersistent.length > 0) {
+        if (isNative) {
+          await loadNativeLibrary(hydratedPersistent);
+        } else if (hydratedPersistent.length > 0) {
           setBooks(hydratedPersistent);
           await restoreLastActiveBook(hydratedPersistent);
         }

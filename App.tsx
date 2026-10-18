@@ -418,6 +418,19 @@ function App() {
   const handleDownloadCatalogBook = async (catalogBook: CatalogBook) => {
     setDownloadingBookIds(prev => new Set(prev).add(catalogBook.id));
     try {
+      // Ensure catalog book is un-deleted in all caches
+      setDeletedBookIds(prev => prev.filter(id => id !== catalogBook.id && id !== catalogBook.title));
+      try {
+        const delStr = localStorage.getItem('cool_read_deleted');
+        if (delStr) {
+          const clean = JSON.parse(delStr).filter((id: string) => id !== catalogBook.id && id !== catalogBook.title);
+          localStorage.setItem('cool_read_deleted', JSON.stringify(clean));
+          if (isNative) {
+            Preferences.set({ key: 'cool_read_deleted', value: JSON.stringify(clean) });
+          }
+        }
+      } catch (e) {}
+
       const file = await downloadCatalogBookFile(catalogBook);
       const namedFile = new File([file], `${catalogBook.title}.fb2`, {
         type: 'application/x-fictionbook+xml',

@@ -3402,7 +3402,7 @@ const EBookReader: React.FC<EBookReaderProps> = ({
           .reader-content {
              text-align: justify !important;
              text-justify: auto !important;
-             word-spacing: -0.006em !important;
+             word-spacing: 0 !important;
              letter-spacing: 0 !important;
              font-kerning: normal !important;
              font-feature-settings: "kern" 1, "liga" 1, "calt" 1, "locl" 1 !important;
@@ -3417,7 +3417,7 @@ const EBookReader: React.FC<EBookReaderProps> = ({
           }
 
           .reader-content p {
-             word-spacing: -0.006em !important;
+             word-spacing: 0 !important;
              letter-spacing: 0 !important;
              font-kerning: normal !important;
              font-feature-settings: "kern" 1, "liga" 1, "calt" 1, "locl" 1 !important;

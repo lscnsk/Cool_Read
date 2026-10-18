@@ -130,13 +130,17 @@ export function useAppPersistence({
     if (!book || !book.id) return null;
     if (isRestoringRef.current && !force) return null;
 
-    // Check if book was deleted
+    // If this book was ever marked in deleted list, unmark it now because it is actively being read
     try {
       if (typeof window !== 'undefined') {
         const deletedStr = localStorage.getItem('cool_read_deleted');
         if (deletedStr) {
           const deletedIds: string[] = JSON.parse(deletedStr);
-          if (deletedIds.includes(book.id)) return null;
+          if (deletedIds.includes(book.id)) {
+            const clean = deletedIds.filter(id => id !== book.id);
+            localStorage.setItem('cool_read_deleted', JSON.stringify(clean));
+            setDeletedBookIds(clean);
+          }
         }
       }
     } catch (e) {}
@@ -201,6 +205,14 @@ export function useAppPersistence({
         };
     }
     
+    // Persist last active book ID for instant restoration on reload
+    try {
+      if (isNative) {
+        Preferences.set({ key: 'cool_read_last_active_book_id', value: book.id });
+      }
+      localStorage.setItem('cool_read_last_active_book_id', book.id);
+    } catch (e) {}
+
     setBookProgressMap(prev => {
         const updated = { ...prev, [book.id]: state };
         const saveStr = JSON.stringify(updated);
@@ -218,7 +230,7 @@ export function useAppPersistence({
     
     return state;
     
-  }, [isNative]);
+  }, [isNative, setDeletedBookIds]);
 
   // Save immediately on major state changes
   useEffect(() => {
@@ -398,6 +410,29 @@ export function useAppPersistence({
         setMode(book.type);
     }
 
+    // Persist as last active book immediately
+    try {
+      if (isNative) {
+        Preferences.set({ key: 'cool_read_last_active_book_id', value: book.id });
+      }
+      localStorage.setItem('cool_read_last_active_book_id', book.id);
+    } catch (e) {}
+
+    // Ensure selected book is never marked as deleted
+    try {
+      setDeletedBookIds(prev => prev.filter(id => id !== book.id));
+      if (typeof window !== 'undefined') {
+        const deletedStr = localStorage.getItem('cool_read_deleted');
+        if (deletedStr) {
+          const parsed = JSON.parse(deletedStr).filter((id: string) => id !== book.id);
+          localStorage.setItem('cool_read_deleted', JSON.stringify(parsed));
+          if (isNative) {
+            Preferences.set({ key: 'cool_read_deleted', value: JSON.stringify(parsed) });
+          }
+        }
+      }
+    } catch (e) {}
+
     // Save current book progress before switching
     if (currentBookRef.current) {
         await saveState(true);
@@ -438,11 +473,9 @@ export function useAppPersistence({
         setBooks(prevBooks => prevBooks.map(b => b.id === book.id ? { ...b, chapters: rehydratedChapters, _sessionActive: true } : b));
     }
 
+    const hasTextContent = book.chapters && book.chapters.length > 0 && !!book.chapters[0].content;
     const needsEbookParsing = book.type === 'ebook' && (
-        !book.chapters.length || 
-        !book.chapters[0].content || 
-        (!isComic && !bookToPlay._sessionActive && book.format !== 'pdf') ||
-        (!isComic && book.chapters.length > 1 && !book.chapters[1]?.content) ||
+        !hasTextContent ||
         (isComic && !bookToPlay._sessionActive) ||
         typeof historyOverrideOrForce === 'boolean'
     );
@@ -543,30 +576,11 @@ export function useAppPersistence({
                     bookToPlay.archiveFiles = book.archiveFiles;
                 }
                 
-                // Update books array with metadata only, NOT the heavy chapter content
-                // IMPORTANT: Preserve the original path/file in the first chapter so we can re-parse it later!
-                const metadataOnlyChapters = parsedBook.chapters?.map((ch, idx) => {
-                    if (idx === 0) {
-                        return { ...ch, content: undefined, path: book.chapters[0]?.path, file: fileToParse };
-                    }
-                    return { ...ch, content: undefined, file: ch.file };
-                }) || book.chapters;
-                
-                const metadataOnlyBook: Book = { 
-                    ...book, 
-                    ...parsedBook, 
-                    title: finalTitle, 
-                    author: finalAuthor, 
-                    series: finalSeries, 
-                    file: fileToParse, 
-                    archiveFiles: book.archiveFiles, 
-                    chapters: metadataOnlyChapters, 
-                    _sessionActive: true 
-                };
-                setBooks(prevBooks => prevBooks.map(b => b.id === book.id ? metadataOnlyBook : b));
+                // Update books array and database with bookToPlay containing full content
+                setBooks(prevBooks => prevBooks.map(b => b.id === book.id ? bookToPlay : b));
 
-                // Persist the parsed book structure to DB
-                saveBookToDB(metadataOnlyBook).catch(e => console.error("Error persisting updated book structure", e));
+                // Persist the book to DB
+                saveBookToDB(bookToPlay).catch(e => console.error("Error persisting updated book structure", e));
             }
         } catch (e) {
             console.error("Parse error", e);
@@ -695,7 +709,11 @@ export function useAppPersistence({
     }
     
     setCurrentBook(bookToPlay);
+    currentBookRef.current = bookToPlay;
     closeAllSidebars();
+    setTimeout(() => {
+      saveState(true);
+    }, 100);
   };
 
   const isCurrentBookOriginallyPdf = currentBook ? (

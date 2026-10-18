@@ -236,8 +236,8 @@ input[type=range]:focus { outline: none; }
   -webkit-text-align-last: left !important;
   text-justify: inter-word;
   -webkit-text-justify: inter-word;
-  word-spacing: -0.028em;
-  letter-spacing: -0.005em;
+  word-spacing: 0;
+  letter-spacing: 0;
   font-kerning: normal;
   font-feature-settings: "kern" 1, "liga" 1, "calt" 1, "locl" 1;
   text-rendering: optimizeLegibility;
@@ -256,13 +256,13 @@ input[type=range]:focus { outline: none; }
 }
 
 .reader-content.reader-large-font {
-  word-spacing: -0.018em !important;
-  letter-spacing: -0.003em !important;
+  word-spacing: 0 !important;
+  letter-spacing: 0 !important;
 }
 
 .reader-content.reader-large-font p {
-  word-spacing: -0.018em !important;
-  letter-spacing: -0.003em !important;
+  word-spacing: 0 !important;
+  letter-spacing: 0 !important;
 }
 
 .reader-content * {
@@ -282,8 +282,8 @@ input[type=range]:focus { outline: none; }
   -webkit-text-align-last: left !important;
   text-justify: inter-word;
   -webkit-text-justify: inter-word;
-  word-spacing: -0.028em;
-  letter-spacing: -0.005em;
+  word-spacing: 0;
+  letter-spacing: 0;
   font-kerning: normal;
   font-feature-settings: "kern" 1, "liga" 1, "calt" 1, "locl" 1;
   font-variant-numeric: normal;

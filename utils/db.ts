@@ -23,33 +23,56 @@ export const initDB = () => {
   });
 };
 
+export const unmarkBookAsDeleted = (bookId: string, title?: string, paths?: string[]): string[] => {
+  try {
+    if (typeof window === 'undefined') return [];
+    const deletedStr = localStorage.getItem('cool_read_deleted');
+    if (!deletedStr) return [];
+    const deletedIds: string[] = JSON.parse(deletedStr);
+    const cleanTitle = title?.trim().toLowerCase();
+    const cleanPaths = (paths || []).map(p => p.trim().toLowerCase().replace(/^\/+/, ''));
+    const normId = bookId.trim().toLowerCase().replace(/^\/+/, '');
+
+    const updated = deletedIds.filter(item => {
+      if (!item) return false;
+      const strItem = String(item).trim().toLowerCase();
+      const normItem = strItem.replace(/^\/+/, '');
+      if (strItem === bookId.toLowerCase() || normItem === normId) return false;
+      if (cleanTitle && strItem === cleanTitle) return false;
+      if (cleanPaths.some(p => normItem === p || strItem === p)) return false;
+      return true;
+    });
+    localStorage.setItem('cool_read_deleted', JSON.stringify(updated));
+    return updated;
+  } catch (e) {
+    return [];
+  }
+};
+
 export const saveBookToDB = async (book: any) => {
   try {
     if (!book || !book.id) return;
 
-    // Never persist a deleted book!
-    try {
-      if (typeof window !== 'undefined') {
-        const deletedStr = localStorage.getItem('cool_read_deleted');
-        if (deletedStr) {
-          const deletedIds: string[] = JSON.parse(deletedStr);
-          if (deletedIds.includes(book.id) || (book.title && deletedIds.includes(book.title))) {
-            return;
-          }
-        }
-      }
-    } catch (e) {}
+    // Explicitly unmark book from deleted log because it is being saved to the library
+    unmarkBookAsDeleted(book.id, book.title, book.chapters?.map((c: any) => c.path || c.name));
 
     const db = await initDB();
     const tx = db.transaction(BOOKS_STORE, 'readwrite');
     const store = tx.objectStore(BOOKS_STORE);
     
-    // Strip heavy chapter content before saving to IndexedDB to avoid storage explosion
+    // For comics with heavy page images, avoid storing gigantic serialized base64 strings in IndexedDB.
+    // For standard text ebooks (FB2, EPUB, PDF text) and audiobooks, preserve full chapter content and structure
+    // so restarting the app never loses the loaded/started book!
+    const isComic = book.format === 'comic';
     const cleanBook = {
       ...book,
+      file: book.file || book.chapters?.[0]?.file || undefined,
       chapters: (book.chapters || []).map((ch: any) => {
-        const { content, ...rest } = ch;
-        return rest;
+        if (isComic) {
+          const { content, ...rest } = ch;
+          return rest;
+        }
+        return { ...ch };
       })
     };
     
@@ -63,18 +86,17 @@ export const saveBookToDB = async (book: any) => {
   }
 };
 
-export const deleteBookFromDB = async (id: string, title?: string): Promise<void> => {
+export const deleteBookFromDB = async (id: string, _title?: string): Promise<void> => {
   try {
     const db = await initDB();
     return new Promise<void>((resolve, reject) => {
       const tx = db.transaction(BOOKS_STORE, 'readwrite');
       const store = tx.objectStore(BOOKS_STORE);
       
-      // Delete primary record
+      // Delete primary record by ID
       store.delete(id);
 
-      // Also clean up any lingering duplicate/aliased records matching this ID, path or title
-      const cleanTitle = title?.trim().toLowerCase();
+      // Also clean up any lingering records matching this exact ID or normalized path
       const normId = id.replace(/^\/+/, '');
       const req = store.openCursor();
       req.onsuccess = (e) => {
@@ -83,10 +105,8 @@ export const deleteBookFromDB = async (id: string, title?: string): Promise<void
           const val = cursor.value;
           if (val) {
             const valNormId = typeof val.id === 'string' ? val.id.replace(/^\/+/, '') : '';
-            const valCleanTitle = typeof val.title === 'string' ? val.title.trim().toLowerCase() : '';
-            const isMatch = val.id === id || 
-              (valNormId && valNormId === normId) ||
-              (cleanTitle && valCleanTitle && valCleanTitle === cleanTitle);
+            // Only delete by exact ID or exact normalized path, NEVER by title alone to avoid wiping re-uploaded books
+            const isMatch = val.id === id || (valNormId && valNormId === normId);
             if (isMatch) {
               cursor.delete();
             }
@@ -106,7 +126,6 @@ export const deleteBookFromDB = async (id: string, title?: string): Promise<void
 export const purgeDeletedBooksFromDB = async (deletedIds: string[]): Promise<void> => {
   if (!deletedIds || deletedIds.length === 0) return;
   try {
-    const lowerDeleted = deletedIds.map(d => typeof d === 'string' ? d.trim().toLowerCase() : '');
     const normDeleted = deletedIds.map(d => typeof d === 'string' ? d.replace(/^\/+/, '') : '');
 
     const db = await initDB();
@@ -120,10 +139,8 @@ export const purgeDeletedBooksFromDB = async (deletedIds: string[]): Promise<voi
           const val = cursor.value;
           if (val) {
             const valNormId = typeof val.id === 'string' ? val.id.replace(/^\/+/, '') : '';
-            const valCleanTitle = typeof val.title === 'string' ? val.title.trim().toLowerCase() : '';
-            const isDel = deletedIds.includes(val.id) || 
-              (valNormId && normDeleted.includes(valNormId)) ||
-              (valCleanTitle && lowerDeleted.includes(valCleanTitle));
+            // Only purge by unique ID or exact path, never by generic book title
+            const isDel = deletedIds.includes(val.id) || (valNormId && normDeleted.includes(valNormId));
             if (isDel) {
               cursor.delete();
             }
