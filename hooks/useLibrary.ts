@@ -1419,7 +1419,9 @@ export function useLibrary({
                 }
                 return {
                   ...ch,
-                  url: freshUrl
+                  url: freshUrl,
+                  level: ch.level !== undefined ? ch.level : 0,
+                  isHeader: ch.isHeader || false
                 };
               })
             };
